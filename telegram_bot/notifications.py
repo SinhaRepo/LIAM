@@ -52,8 +52,8 @@ async def notify_token_expiry(days_left: int = 5):
 
 async def notify_error(error_details: str):
     """Notification for critical system failures."""
-    message = f"🚨 *SYSTEM ERROR*\n\n{error_details}"
-    await send_notification(message)
+    message = f"🚨 SYSTEM ERROR\n\n{error_details}"
+    await send_notification(message, parse_mode=None)
 
 def send_notification_sync(coro):
     """
