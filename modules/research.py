@@ -119,7 +119,8 @@ def get_trending_topics() -> dict:
     """Main entry point for the research module."""
     console.print("[dim]Starting research module...[/dim]")
     
-    used_topics = get_used_topics(days=7)
+    cooldown = int(os.environ.get("TOPIC_COOLDOWN_DAYS", 7))
+    used_topics = get_used_topics(days=cooldown)
     console.print(f"[dim]Found {len(used_topics)} topics recently used.[/dim]")
     
     rss_trends = get_rss_trends()
