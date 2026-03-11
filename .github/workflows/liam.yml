@@ -1,0 +1,81 @@
+name: LIAM — LinkedIn Autonomous Agent
+
+on:
+  schedule:
+    # 8:00 AM IST weekdays (2:30 AM UTC)
+    - cron: '30 2 * * 1-5'
+    # 12:30 PM IST weekdays (7:00 AM UTC)
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Optional topic to write about'
+        required: false
+        default: ''
+
+jobs:
+  run-liam:
+    name: Run LIAM Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run LIAM Agent
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          STABILITY_API_KEY: ${{ secrets.STABILITY_API_KEY }}
+          HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          TIMEZONE: Asia/Kolkata
+          MAX_POSTS_PER_DAY: 2
+          VOICE_SCORE_THRESHOLD: 70
+        run: |
+          if [ -n "${{ github.event.inputs.topic }}" ]; then
+            python liam.py "${{ github.event.inputs.topic }}"
+          else
+            python liam.py
+          fi
+
+      - name: Persist State (Memory DB)
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f memory.db
+          git diff --staged --quiet || (git commit -m "chore: persist memory.db state [skip ci]" && git push)
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, requests
+          token = os.getenv('TELEGRAM_BOT_TOKEN')
+          chat_id = os.getenv('TELEGRAM_CHAT_ID')
+          requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={
+              'chat_id': chat_id,
+              'text': '🚨 LIAM GitHub Actions run FAILED.\nCheck: https://github.com/${{ github.repository }}/actions'
+            },
+            timeout=10
+          )
+          "

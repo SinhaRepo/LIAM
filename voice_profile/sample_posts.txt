@@ -1,0 +1,49 @@
+---
+POST 1:  
+I spent a week chasing a bug that turned out to be caused by one wrong line.  
+
+I built a Telegram bot for my LinkedIn AI agent. It used two Application instances with the same bot token. Both were calling start_polling().  
+
+Telegram gave me a conflict error every time I ran it.  
+
+The fix was to use one shared Application instance. I could add and remove handlers dynamically. I should never start a second polling loop.  
+
+I felt foolish when I figured it out. But that's how you really learn about structure.  
+
+One bug. One week. One line fix.  
+
+#Python #TelegramBot #Backend #LearnInPublic  
+
+---
+POST 2:  
+Here are three things I wish I knew before my first backend project.  
+
+1. Read the existing code before writing new code. I spent day one rewriting something that was already there.  
+
+2. PostgreSQL indexes matter more than you think. One query went from 4 seconds to 40 milliseconds because of one index.  
+
+3. Ask simple questions early. Nobody judges you for not knowing. They judge you for pretending you do.  
+
+#Python #Backend #PostgreSQL #LearnInPublic  
+
+---
+POST 3:  
+I built an AI agent that writes LinkedIn posts in my voice.  
+
+Here’s what I actually used:  
+- Groq API (Llama 3.3 70B) for generating posts  
+- RSS feeds for researching trending topics  
+- A voice scorer to check authenticity (0-100)  
+- SQLite for memory and duplication removal  
+- A Telegram bot for human approval  
+- GitHub Actions as the free scheduler  
+
+The part that surprised me most was that the hardest problem wasn’t the AI. 
+
+It was making sure I remained in control.
+Human approval before every post.
+I enforced a 4-hour gap between posts in code. Posting was only allowed on weekdays. 
+
+AI should assist. Not autopilot.
+
+#Python #AIAgents #Groq #OpenSource

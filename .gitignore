@@ -1,0 +1,41 @@
+# Environment & Secrets
+.env
+
+# Database
+memory.db
+test_memory.db
+*.db
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test Cache
+.pytest_cache/
+.coverage
+
+# Generated Files
+generated_images/
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
+
+# Logs
+*.log
+nul
+
+# Internal Docs
+task.md
+walkthrough*.md
+audit_report*.md
+path.txt
+LinkedIn_AI_Agent_Blueprint.md

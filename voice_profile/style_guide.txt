@@ -1,0 +1,14 @@
+Tone: casual, honest, direct, personal
+Sentence Length: short to medium (10-15 words avg)
+Perspective: first person, own experience
+Structure: experience -> what I learned -> 1 takeaway
+Hashtags: 3-5 max, only relevant ones
+Ideal Length: 150-250 words
+Emojis: 0-2 max, only if completely natural
+
+Reference Content Types (In Order of Performance):
+1. Personal experience + honest lesson
+2. Specific technical thing you learned/built
+3. Honest opinion on an AI/tech topic
+4. Asking a genuine question to your audience
+5. Achievement + what actually went into it (not just celebration)
