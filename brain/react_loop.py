@@ -1,4 +1,5 @@
 import time
+import os
 from datetime import datetime
 from modules.research import get_trending_topics
 from modules.voice_scorer import generate_and_score_post
@@ -85,7 +86,8 @@ def agent_loop(user_prompt: str = None):
         console.print(f"[yellow]Warning: Image generation failed, falling back to text-only. Error: {e}[/yellow]")
 
     # 4. DECIDE: Approval
-    if scores['total_score'] >= 70:
+    threshold = int(os.environ.get("VOICE_SCORE_THRESHOLD", 70))
+    if scores['total_score'] >= threshold:
         console.print("[cyan]THINK:[/cyan] Score is good. Requesting human approval via Telegram.")
         decision = request_approval(post_text=post, image_path=image_path, score=scores['total_score'], details=f"Topic: {topic_str}")
         
@@ -185,7 +187,7 @@ def agent_loop(user_prompt: str = None):
             f"⚠️ *Post Skipped — Score Too Low*\n\n"
             f"Topic: {topic_str}\n"
             f"Best score after 3 attempts: {scores['total_score']}/100\n"
-            f"Threshold: 70/100\n\n"
+            f"Threshold: {threshold}/100\n\n"
             f"Consider updating `voice_profile/sample_posts.txt` "
             f"with your recent posts to improve scoring."
         )
