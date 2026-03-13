@@ -1,49 +1,57 @@
 ---
 POST 1:  
-I spent a week chasing a bug that turned out to be caused by one wrong line.  
+Google just acquired Wiz for $32 billion.  
 
-I built a Telegram bot for my LinkedIn AI agent. It used two Application instances with the same bot token. Both were calling start_polling().  
+That's a cloud security company. It’s the biggest acquisition in Google’s history.  
 
-Telegram gave me a conflict error every time I ran it.  
+What caught my attention wasn't the price. It was the timing.  
 
-The fix was to use one shared Application instance. I could add and remove handlers dynamically. I should never start a second polling loop.  
+Every major cloud provider is now racing to own the security layer. AWS has GuardDuty. Azure has Defender. Now Google has Wiz.  
 
-I felt foolish when I figured it out. But that's how you really learn about structure.  
+As someone learning about cloud and backend, this tells me one thing clearly. Security is no longer optional in architecture. It’s the product.  
 
-One bug. One week. One line fix.  
+If you're building APIs or cloud services and treating security as an afterthought, this $32 billion deal is your wake-up call.  
 
-#Python #TelegramBot #Backend #LearnInPublic  
+What’s your take on cloud security becoming a main product layer?  
 
----
+#Python #CloudSecurity #Backend #GoogleCloud  
+
+---  
 POST 2:  
-Here are three things I wish I knew before my first backend project.  
+GitHub Actions is underrated for solo developers.  
 
-1. Read the existing code before writing new code. I spent day one rewriting something that was already there.  
+You get free compute. No server. No credit card. Just push code, and it runs on schedule.  
 
-2. PostgreSQL indexes matter more than you think. One query went from 4 seconds to 40 milliseconds because of one index.  
+Most people use it only for CI/CD. But it can do so much more:  
+- Run scheduled Python scripts  
+- Automate repetitive tasks  
+- Replace cron jobs on your laptop  
+- Build personal automation for free  
 
-3. Ask simple questions early. Nobody judges you for not knowing. They judge you for pretending you do.  
+For developers in India building side projects on a tight budget, this changes what’s possible.  
 
-#Python #Backend #PostgreSQL #LearnInPublic  
+The best tools aren't always the ones everyone talks about. Sometimes they’re hiding in plain sight.  
 
----
+What’s an underrated tool you use that more developers should know about?  
+
+#Python #GitHubActions #Automation #BuildInPublic  
+
+---  
 POST 3:  
-I built an AI agent that writes LinkedIn posts in my voice.  
+Unpopular opinion:  
 
-Here’s what I actually used:  
-- Groq API (Llama 3.3 70B) for generating posts  
-- RSS feeds for researching trending topics  
-- A voice scorer to check authenticity (0-100)  
-- SQLite for memory and duplication removal  
-- A Telegram bot for human approval  
-- GitHub Actions as the free scheduler  
+Most AI startups funded at $10 million or more won't exist in three years.  
 
-The part that surprised me most was that the hardest problem wasn’t the AI. 
+Not because the founders are bad. It’s because the competition is fierce.  
 
-It was making sure I remained in control.
-Human approval before every post.
-I enforced a 4-hour gap between posts in code. Posting was only allowed on weekdays. 
+If your entire product is "ChatGPT but for X niche," OpenAI’s next model update is your biggest competitor.  
 
-AI should assist. Not autopilot.
+The AI products that survive will be the ones building on top of AI, not just in front of it.  
 
-#Python #AIAgents #Groq #OpenSource
+Data pipelines, vertical integrations and genuine workflow automation can make a difference.  
+
+As someone learning to build with AI APIs, I think about this a lot.  
+
+What makes an AI product truly defensible?  
+
+#AI #Startups #Python #BuildInPublic  
