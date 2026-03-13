@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import random
 from datetime import datetime, timedelta
 import feedparser
 from googlesearch import search
@@ -19,7 +20,8 @@ NICHE_KEYWORDS = [
     "Python", "Flask", "Backend Development",
     "AI", "Machine Learning", "LLMs",
     "Cloud", "PostgreSQL", "REST APIs",
-    "AI agents"
+    "AI agents", "open source", "developer",
+    "API", "GitHub", "automation", "startup"
 ]
 
 def get_used_topics(days: int = 7) -> list[str]:
@@ -41,11 +43,11 @@ def get_rss_trends() -> list[dict]:
             feed = feedparser.parse(feed_url)
             # Take top 3 entries from each feed
             for entry in feed.entries[:3]:
-                # Simple keyword matching to ensure relevance
+                # Keyword filter applies to all feeds
                 title_lower = entry.title.lower()
                 is_relevant = any(kw.lower() in title_lower for kw in NICHE_KEYWORDS)
                 
-                if is_relevant or "technology/ai" in feed_url:  # Google AI blog is always relevant
+                if is_relevant:
                     trends.append({
                         "title": entry.title,
                         "link": entry.link,
@@ -63,8 +65,6 @@ def get_google_search_trends() -> list[str]:
     results = []
     
     try:
-        # googlesearch-python handles the heavy lifting
-        # num_results=5, language='en'
         search_results = search(query, num_results=5, lang="en")
         for url in search_results:
             results.append(url)
@@ -101,18 +101,18 @@ def score_and_select_topic(rss_trends: list[dict], search_trends: list[str], use
         # Fallback if somehow everything is used
         available_topics = ["Reflections on backend architecture scaling"]
         
-    # Simply pick the first available top trend
-    best_topic = available_topics[0]
+    # Randomly pick from top 3 to avoid same topic repeating every run
+    best_topic = random.choice(available_topics[:3])
     
     # Add Google search context if available
     for link in search_trends[:3]:
         top_posts_summary.append(f"[LinkedIn Search] Relevant discussion found at: {link}")
         
     return {
-        "trending_topics": available_topics[:5],  # top 5
-        "top_posts_summary": top_posts_summary[:5], # top 5
+        "trending_topics": available_topics[:5],
+        "top_posts_summary": top_posts_summary[:5],
         "recommended_topic": best_topic,
-        "reasoning": f"Highly relevant to {NICHE_KEYWORDS[0]}/{NICHE_KEYWORDS[3]} niche. Has not been posted about in the last 7 days."
+        "reasoning": f"Relevant to niche keywords. Has not been posted about in the last 7 days."
     }
 
 def get_trending_topics() -> dict:
