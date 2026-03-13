@@ -12,7 +12,7 @@ console = Console()
 RSS_FEEDS = [
     "https://techcrunch.com/feed/",
     "https://hnrss.org/frontpage",
-    "https://dev.to/feed",
+    "https://feeds.feedburner.com/venturebeat/SZYF",
     "https://blog.google/technology/ai/rss/"
 ]
 
