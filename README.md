@@ -1,324 +1,283 @@
 <div align="center">
 
-# 🤖 LIAM — LinkedIn Intelligent Autonomous Manager
+# LIAM — LinkedIn Intelligent Autonomous Manager
 
-**A fully autonomous Python AI agent that researches trending topics, writes LinkedIn posts in your authentic voice, gets your approval via Telegram, and publishes automatically — zero cost, no server, runs free on GitHub Actions forever.**
+A Python agent that researches trending topics, writes LinkedIn posts in a configured personal voice, generates matching images and publishes to LinkedIn — with mandatory human approval via Telegram before every post.
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-15%2F15%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub Actions](https://img.shields.io/github/actions/workflow/status/SinhaRepo/linkedin-agent/liam.yml?label=LIAM%20Agent&logo=github)](../../actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/SinhaRepo/LIAM/liam.yml?label=CI&logo=github)](../../actions)
 
-**Built by [Ansh Sinha](https://github.com/SinhaRepo)** · Python Backend Developer · AI / Cloud / Python niche
+Built by [Ansh Sinha](https://github.com/SinhaRepo) · Python Backend Developer
 
 </div>
+
+---
+
+## Overview
+
+LIAM runs as a stateless job on GitHub Actions twice daily. It wakes up, researches what is trending in tech, writes a post scored against a personal voice profile, sends a Telegram approval request with 5 action buttons, waits up to an hour for a decision, then posts to LinkedIn and exits. No server. No subscription. No manual work beyond tapping a button.
+
+The interesting engineering problems in this project are the Telegram bot architecture, the ReAct agent loop and the voice scoring system — all described below.
 
 ---
 
 ## Table of Contents
 
 - [How It Works](#how-it-works)
-- [Features](#features)
+- [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
 - [Setup](#setup)
 - [GitHub Actions Deployment](#github-actions-deployment)
 - [Telegram Bot](#telegram-bot)
+- [Voice Profile and Scoring](#voice-profile-and-scoring)
 - [Safety Guardrails](#safety-guardrails)
-- [Voice Profile & Scoring](#voice-profile--scoring)
 - [Tests](#tests)
 - [LinkedIn Token Renewal](#linkedin-token-renewal)
 - [Known Limitations](#known-limitations)
 - [Roadmap](#roadmap)
-- [License](#license)
 
 ---
 
 ## How It Works
 
-LIAM runs as a **single stateless job** on GitHub Actions. It wakes up on schedule, does its job, sends you an approval message on Telegram, waits for your tap, posts to LinkedIn, then shuts down. Your laptop doesn't need to be on. There's no server to manage.
-
 ```
-GitHub Actions (Cron: 8:00 AM + 12:30 PM IST, Mon–Fri)
-              │
-              ▼
-         ┌─────────────────────────────────────────────────────┐
-         │                  liam.py (entry point)              │
-         │  start_command_bot() → agent_loop(topic=None)       │
-         └───────────────────┬─────────────────────────────────┘
-                             │
-         ┌───────────────────▼─────────────────────────────────┐
-         │               ReAct Loop  (brain/react_loop.py)     │
-         │                                                     │
-         │  THINK  ──►  No topic given. Research needed.       │
-         │                         │                           │
-         │  ACT    ──►  Fetch RSS feeds + Google Search        │
-         │              Filter by niche keywords               │
-         │              Deduplicate against memory             │
-         │                         │                           │
-         │  ACT    ──►  Pick random angle + hook               │
-         │              Generate post via Groq (Llama 3.3 70B) │
-         │              Score post 0–100 (voice scorer)        │
-         │              Retry if score < 70 (max 3 attempts)   │
-         │                         │                           │
-         │  ACT    ──►  Generate supplementary image           │
-         │              (Stability AI → HuggingFace fallback)  │
-         │                         │                           │
-         │  ACT    ──►  Send Telegram approval message         │
-         │              (post text + image + score + 5 buttons)│
-         │                         │                           │
-         │  OBSERVE ──► Wait for your decision (up to 1 hour)  │
-         │                         │                           │
-         │  ACT    ──►  Post to LinkedIn API                   │
-         │              Save to SQLite memory                   │
-         │              Exit cleanly                           │
-         └─────────────────────────────────────────────────────┘
-```
-
-### Telegram Bot Architecture
-
-LIAM uses a **single shared Application instance** — the biggest architectural challenge in the build.
-
-The naive approach creates two Application instances (one for commands, one for approvals) both calling `start_polling()` on the same bot token. Telegram rejects the second connection with a polling conflict error — the entire approval flow crashes silently on every real run.
-
-The fix: one `Application` is created at startup and stored as a shared singleton. Approval handlers are added and removed **dynamically per session** using handler groups (group 10 for callbacks, group 11 for text replies). The command bot and approval system communicate across threads using `threading.Event` and `asyncio.run_coroutine_threadsafe()`.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│              Telegram Bot Architecture                  │
-│                                                         │
-│  bot.py                                                 │
-│  ┌──────────────────────────────────────┐               │
-│  │  _shared_app  (single Application)  │               │
-│  │  _app_loop    (single event loop)   │               │
-│  │  _app_ready   (threading.Event)     │               │
-│  │                                     │               │
-│  │  CommandHandler: /start             │               │
-│  │  CommandHandler: /status            │               │
-│  │  CommandHandler: /history           │               │
-│  │  CommandHandler: /report            │               │
-│  └──────────────┬───────────────────────┘               │
-│                 │  get_shared_app()                     │
-│                 │  get_app_loop()                       │
-│                 ▼                                       │
-│  approval.py                                            │
-│  ┌──────────────────────────────────────┐               │
-│  │  NO new Application                 │               │
-│  │  NO new start_polling()             │               │
-│  │                                     │               │
-│  │  Dynamic add → CallbackQueryHandler │  group=10     │
-│  │  Dynamic add → MessageHandler       │  group=11     │
-│  │  threading.Event → cross-thread     │               │
-│  │  run_coroutine_threadsafe → sends   │               │
-│  │  Dynamic remove → cleanup on exit  │               │
-│  └──────────────────────────────────────┘               │
-└─────────────────────────────────────────────────────────┘
+GitHub Actions (cron: 8:00 AM + 12:30 PM IST, Mon–Fri)
+          |
+          v
+    liam.py  →  start_command_bot()  →  agent_loop()
+          |
+          v
+    ┌─────────────────────────────────────────────────┐
+    │               ReAct Loop                        │
+    │                                                 │
+    │  THINK   No topic given. Research needed.       │
+    │    |                                            │
+    │  ACT     RSS feeds + Google Search              │
+    │          Filter by niche keywords               │
+    │          Deduplicate against SQLite memory      │
+    │    |                                            │
+    │  ACT     Pick random angle + hook               │
+    │          Generate post via Groq (Llama 3.3 70B) │
+    │          Score 0–100 via voice scorer           │
+    │          Retry if score < 70 (max 3 attempts)   │
+    │    |                                            │
+    │  ACT     Generate image prompt via Groq         │
+    │          Generate image via Stability AI        │
+    │          Fall back to HuggingFace if needed     │
+    │    |                                            │
+    │  ACT     Send Telegram approval message         │
+    │          5 action buttons, 45-min reminder      │
+    │    |                                            │
+    │  OBSERVE Wait up to 1 hour for decision         │
+    │    |                                            │
+    │  ACT     Post to LinkedIn ugcPosts API          │
+    │          Save result to SQLite                  │
+    │          Exit                                   │
+    └─────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Features
+## Architecture
 
-- 📰 **Trending topic research** via RSS feeds (TechCrunch, Hacker News, Dev.to, Google AI Blog) + Google Search — filtered by niche keywords
-- ✍️ **Post generation** via Groq API (Llama 3.3 70B) in your personal voice with randomized angles and hooks
-- 🎨 **Image generation** — Stability AI primary, HuggingFace FLUX.1-schnell free fallback
-- 📊 **Voice scoring system** (0–100) — auto-retries if score < 70, maximum 3 attempts before Telegram alert
-- 📱 **Human approval via Telegram** — 5-button approval UI before every single post
-- 🛡️ **Safety guardrails** — 4hr minimum gap, 2 posts/day cap, weekdays only, human-like random delay
-- 🧠 **SQLite memory** — post history, topic deduplication, voice drift detection
-- ⚠️ **Proactive alerts** — low score notification, voice drift warning, LinkedIn token expiry reminder
-- ☁️ **Zero-cost deployment** — runs entirely on GitHub Actions free tier, no server needed
-- 🔄 **Full Telegram control** — 5 approval buttons + 4 commands, real-time status
+### Telegram Bot — Single Application, Shared State
+
+The naive approach for this kind of agent creates two separate `Application` instances: one for command handling and one for approval callbacks. Both call `start_polling()` on the same bot token. Telegram rejects the second connection with a polling conflict error, silently crashing the approval flow on every real run.
+
+The fix is a single shared `Application` instance initialized at startup in `bot.py` and stored as a module-level singleton. Command handlers are registered once at startup. Approval handlers are added and removed **dynamically per session** using handler groups (group 10 for inline button callbacks, group 11 for text message replies). Communication between the main thread and the bot's async event loop uses `threading.Event` and `asyncio.run_coroutine_threadsafe()`.
+
+```
+bot.py
+┌──────────────────────────────────────────┐
+│  _shared_app   (single Application)      │
+│  _app_loop     (single event loop)       │
+│  _app_ready    (threading.Event)         │
+│                                          │
+│  CommandHandler  /start    group=0       │
+│  CommandHandler  /status   group=0       │
+│  CommandHandler  /history  group=0       │
+│  CommandHandler  /report   group=0       │
+└──────────────────┬───────────────────────┘
+                   │  get_shared_app()
+                   │  get_app_loop()
+                   v
+approval.py
+┌──────────────────────────────────────────┐
+│  No new Application                      │
+│  No new start_polling()                  │
+│                                          │
+│  Dynamic add/remove:                     │
+│    CallbackQueryHandler   group=10       │
+│    MessageHandler         group=11       │
+│                                          │
+│  threading.Event   cross-thread signal   │
+│  run_coroutine_threadsafe   send msgs    │
+└──────────────────────────────────────────┘
+```
+
+### ReAct Loop
+
+The agent loop in `brain/react_loop.py` follows the ReAct pattern: Reasoning and Acting in alternating steps. At each stage the agent decides what action to take based on available context, executes it and observes the result before proceeding. This makes the control flow explicit and traceable rather than a monolithic pipeline.
+
+### Voice Scoring
+
+Every generated post is scored across four axes before being sent for approval. If the score is below 70, the post is discarded and regenerated — up to 3 attempts. The highest-scoring attempt is kept, not the last one.
+
+Banned phrases are enforced at the Python level in addition to the LLM prompt. If the model generates a banned phrase despite the instruction, `voice_scorer.py` detects it in code and forces a retry before the scoring step.
 
 ---
 
 ## Tech Stack
 
-| Layer | Tool | Cost |
-|-------|------|------|
-| LLM | Groq API — Llama 3.3 70B | Free tier |
-| Image (primary) | Stability AI REST API | 25 free credits |
-| Image (fallback) | HuggingFace FLUX.1-schnell | Free |
-| Hosting | GitHub Actions | Free forever (public repo) |
-| Mobile control | Telegram Bot API | Free |
-| Publishing | LinkedIn Official API | Free |
-| Memory | SQLite (via Python stdlib) | Free |
-| Scheduler | GitHub Actions Cron | Free |
-| Terminal UI | Rich (Python) | Free |
+| Layer | Tool | Notes |
+|-------|------|-------|
+| LLM | Groq API — Llama 3.3 70B | Post generation and image prompt generation |
+| Image (primary) | Stability AI REST API | 25 free credits on signup |
+| Image (fallback) | HuggingFace FLUX.1-schnell | Automatic failover |
+| Hosting | GitHub Actions | Free on public repos |
+| Mobile control | Telegram Bot API | Approval flow and commands |
+| Publishing | LinkedIn Official API (ugcPosts) | No scraping |
+| Memory | SQLite — Python stdlib | Post history, topic deduplication, voice scores |
+| Research | feedparser + googlesearch-python | 4 RSS feeds + keyword-filtered Google Search |
+| Terminal UI | Rich | Local runs only |
 
-**Total infrastructure cost: ₹0**
+**Total infrastructure cost: $0**
 
 ---
 
 ## Project Structure
 
 ```
-linkedin-agent/
+LIAM/
 ├── .github/
 │   └── workflows/
-│       └── liam.yml              # GitHub Actions — 2x/day IST, weekdays
+│       └── liam.yml              # Cron schedule, secrets injection, memory.db persistence
 ├── brain/
-│   ├── prompts.py                # LLM system prompt + context builder
-│   └── react_loop.py             # THINK → ACT → OBSERVE agent loop
+│   ├── prompts.py                # System prompt, writing rules, structure templates
+│   └── react_loop.py             # THINK → ACT → OBSERVE loop, image prompt generation
 ├── cli/
-│   └── interface.py              # Rich terminal UI (local runs)
+│   └── interface.py              # Rich terminal panel (local runs)
 ├── modules/
-│   ├── image_gen.py              # Stability AI + HuggingFace fallback
-│   ├── memory.py                 # SQLite CRUD — history, dedup, drift
-│   ├── poster.py                 # LinkedIn API + all safety checks
-│   ├── research.py               # RSS feeds + Google Search + dedup
-│   ├── scheduler.py              # APScheduler jobs (server/local mode)
-│   ├── voice_scorer.py           # Post scoring engine (0–100)
-│   └── writer.py                 # Groq API post generation
+│   ├── image_gen.py              # Stability AI primary, HuggingFace fallback
+│   ├── memory.py                 # SQLite CRUD — history, deduplication, drift detection
+│   ├── poster.py                 # LinkedIn API, safety checks, 429 retry
+│   ├── research.py               # RSS + Google Search, keyword filtering, deduplication
+│   ├── scheduler.py              # APScheduler jobs for local/server deployment
+│   ├── voice_scorer.py           # 4-axis scoring, hard banned phrase enforcement
+│   └── writer.py                 # Groq API call, voice profile injection
 ├── telegram_bot/
-│   ├── approval.py               # Shared app, dynamic handlers, 5 buttons
-│   ├── bot.py                    # Single Application instance + commands
+│   ├── approval.py               # Dynamic handler groups, threading.Event, 5-button UI
+│   ├── bot.py                    # Single Application singleton, startup message
 │   ├── commands.py               # /start /status /history /report
 │   └── notifications.py          # Async notification helpers
-├── tests/                        # 15 tests — all passing
-│   ├── test_guardrails.py
-│   ├── test_image_gen.py
-│   ├── test_memory.py
-│   ├── test_poster.py
-│   ├── test_react_loop.py
-│   ├── test_research.py
-│   ├── test_telegram.py
-│   ├── test_voice_scorer.py
-│   └── test_writer.py
+├── tests/                        # 15 tests, all passing
 ├── tools/
-│   └── get_token.py              # LinkedIn OAuth helper (run locally)
+│   └── get_token.py              # LinkedIn OAuth2 flow, auto-saves token to .env
 ├── voice_profile/
-│   ├── banned_phrases.txt        # Words LIAM never uses
-│   ├── sample_posts.txt          # Your real posts — style reference only
-│   └── style_guide.txt           # Your tone rules
-├── .env.example                  # Environment template
-├── liam.py                       # Entry point
-├── requirements.txt
-├── LICENSE
-└── README.md
+│   ├── banned_phrases.txt        # Phrases enforced at code level, not just prompt level
+│   ├── sample_posts.txt          # Reference posts — style only, not topic
+│   └── style_guide.txt           # Tone, length, structure rules
+├── .env.example
+├── liam.py                       # Entry point — CLI args, bot startup, loop dispatch
+└── requirements.txt
 ```
-
----
-
-## Prerequisites
-
-### Accounts Needed (All Free)
-
-| # | Service | Purpose | Sign Up |
-|---|---------|---------|---------|
-| 1 | **Groq** | LLM (Llama 3.3 70B) for post generation | [console.groq.com](https://console.groq.com/) |
-| 2 | **Telegram** | Bot for approval + commands | [@BotFather](https://t.me/BotFather) on Telegram |
-| 3 | **LinkedIn Developer** | Official API for publishing | [developer.linkedin.com](https://developer.linkedin.com/) |
-| 4 | **HuggingFace** | FLUX image generation fallback | [huggingface.co](https://huggingface.co/) |
-| 5 | **Stability AI** | Primary image generation (25 free credits) | [platform.stability.ai](https://platform.stability.ai/) |
-
-> **Tip:** Open all 5 links in browser tabs right now, create accounts, and collect your API keys before continuing. Takes about 20 minutes total.
-
-### LinkedIn Developer App Setup
-
-This is the most involved step. Follow carefully:
-
-1. Go to [LinkedIn Developer Portal](https://developer.linkedin.com/) → **Create App**
-2. Fill in app name and associate it with your LinkedIn profile
-3. Under **Products**, request access to **Share on LinkedIn** (gives `w_member_social` permission)
-4. Copy your **Client ID** and **Client Secret** from the Auth tab
-5. Add `http://localhost:8000/callback` as a redirect URI
 
 ---
 
 ## Setup
 
-### 1. Clone & Install
+### Accounts Required (All Free)
+
+| Service | Purpose | Link |
+|---------|---------|------|
+| Groq | LLM — post and image prompt generation | [console.groq.com](https://console.groq.com/) |
+| Telegram | Approval UI and bot commands | [@BotFather](https://t.me/BotFather) |
+| LinkedIn Developer | Official posting API | [developer.linkedin.com](https://developer.linkedin.com/) |
+| HuggingFace | Image generation fallback | [huggingface.co](https://huggingface.co/) |
+| Stability AI | Primary image generation | [platform.stability.ai](https://platform.stability.ai/) |
+
+### LinkedIn Developer App
+
+1. Go to [developer.linkedin.com](https://developer.linkedin.com/) and create an app
+2. Under Products, request access to **Share on LinkedIn** — this grants `w_member_social`
+3. Copy **Client ID** and **Client Secret** from the Auth tab
+4. Add `http://localhost:8000/callback` as a redirect URI
+
+Approval typically takes 1–2 days.
+
+### Installation
 
 ```bash
-git clone https://github.com/SinhaRepo/linkedin-agent.git
-cd linkedin-agent
+git clone https://github.com/SinhaRepo/LIAM.git
+cd LIAM
 pip install -r requirements.txt
-```
-
-### 2. Configure Environment
-
-```bash
 cp .env.example .env
-# Open .env and fill in all your API keys
+# Fill in all API keys in .env
 ```
+
+### Environment Variables
 
 ```env
-GROQ_API_KEY=your_groq_key_here
-STABILITY_API_KEY=your_stability_key_here
-HUGGINGFACE_TOKEN=your_hf_token_here
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
-LINKEDIN_CLIENT_ID=your_client_id_here
-LINKEDIN_CLIENT_SECRET=your_client_secret_here
-LINKEDIN_ACCESS_TOKEN=your_access_token_here
+GROQ_API_KEY=
+STABILITY_API_KEY=
+HUGGINGFACE_TOKEN=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=
+LINKEDIN_ACCESS_TOKEN=
 TIMEZONE=Asia/Kolkata
 MAX_POSTS_PER_DAY=2
 VOICE_SCORE_THRESHOLD=70
 TOPIC_COOLDOWN_DAYS=7
 ```
 
-> **How to get your Telegram Chat ID:** Message your bot once, then open `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser. Your chat ID is in the `id` field.
+To get your `TELEGRAM_CHAT_ID`: send any message to your bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates`. Your ID is in the `id` field.
 
-### 3. Get LinkedIn Access Token
+### LinkedIn Access Token
 
 ```bash
 python tools/get_token.py
 ```
 
-This opens a browser OAuth flow. After authorizing, it prints your access token. Copy it into `.env`.
+Opens a browser OAuth flow. Authorizes the app, exchanges the code for an access token and writes it directly to `.env`. Token expires every ~60 days.
 
-### 4. Fill Your Voice Profile
+### Voice Profile
 
-This is the most important setup step. Three files control how LIAM writes:
+This is the most important setup step. Three files in `voice_profile/` control how LIAM writes.
 
-**`voice_profile/sample_posts.txt`** — Paste 3–5 of your real LinkedIn posts here. LIAM reads these to learn your sentence length, tone, structure and vocabulary. It copies your style, not your topics.
+**`sample_posts.txt`** — Paste 3–5 of your real LinkedIn posts. LIAM reads these as style references — sentence length, tone and structure. It does not copy topics.
 
 ```
 ---
 POST 1:
-[paste your actual LinkedIn post here]
+[your actual LinkedIn post]
 
 ---
 POST 2:
-[paste another real post here]
+[another real post]
 ```
 
-**`voice_profile/style_guide.txt`** — Write your personal rules:
+**`style_guide.txt`** — Your personal writing rules in plain text.
 
-```
-- Write in first person always
-- Short sentences, maximum 15 words each
-- No corporate buzzwords
-- One personal story or technical lesson per post
-- End with a question to drive comments
-- Python, AI, and Backend topics only
-```
+**`banned_phrases.txt`** — One phrase per line. These are checked in Python code after generation — not just in the LLM prompt — so they are always enforced.
 
-**`voice_profile/banned_phrases.txt`** — One phrase per line:
-
-```
-excited to announce
-game changer
-in today's fast-paced world
-leverage
-thought leader
-```
-
-### 5. Run Locally (Optional Test)
+### Run Locally
 
 ```bash
-# Auto-researches a topic and runs the full approval flow
+# Auto-research and full approval flow
 python liam.py
 
-# Run with a specific topic
+# Specific topic
 python liam.py "building AI agents with Python"
 
-# Continuous scheduler mode (for server/VPS deployment)
+# Continuous scheduler mode
 python liam.py --schedule
 
-# View post history
+# Post history
 python liam.py --history
 ```
 
@@ -326,65 +285,37 @@ python liam.py --history
 
 ## GitHub Actions Deployment
 
-LIAM is designed to run on GitHub Actions — free, no server, no laptop required.
-
 ### Step 1 — Push to GitHub
 
 ```bash
 git add .
-git status          # verify .env does NOT appear in this list
-git commit -m "LIAM v1.0"
+git status       # confirm .env is not listed
+git commit -m "init"
 git push origin main
 ```
 
-### Step 2 — Add Secrets
+### Step 2 — Add Repository Secrets
 
-```
-Your repo → Settings → Secrets and variables → Actions → New repository secret
-```
-
-Add all 8 secrets:
-
-```
-GROQ_API_KEY
-STABILITY_API_KEY
-HUGGINGFACE_TOKEN
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-LINKEDIN_CLIENT_ID
-LINKEDIN_CLIENT_SECRET
-LINKEDIN_ACCESS_TOKEN
-```
+Navigate to **Settings → Secrets and variables → Actions → New repository secret** and add all 8 keys from the environment variables section above.
 
 ### Step 3 — Enable Workflows
 
-```
-Your repo → Actions tab → "I understand, enable them"
-```
+Go to the **Actions** tab and click **"I understand my workflows, go ahead and enable them"**.
 
-### Step 4 — First Manual Test
+### Step 4 — First Test Run
 
-```
-Actions tab → LIAM — LinkedIn Autonomous Agent → Run workflow
-→ Enter topic: "I just open sourced my LinkedIn AI agent"
-→ Click: Run workflow
-```
+Go to **Actions → LIAM — LinkedIn Autonomous Agent → Run workflow**, enter an optional topic and click Run.
 
-**What you should see:**
+Within 5 minutes you should receive a Telegram message with the generated post and 5 approval buttons.
 
-| Where | What Happens |
-|-------|-------------|
-| GitHub Actions log | Setup → Install → LIAM starts running |
-| Telegram (within 2 min) | `🤖 LIAM is online and ready!` |
-| Telegram (within 5 min) | Approval message with post text + 5 buttons |
-| After you tap ✅ | Post appears live on your LinkedIn |
+### Automatic Schedule
 
-### Automatic Schedule (after setup)
+| Time (IST) | Days |
+|------------|------|
+| 8:00 AM | Monday to Friday |
+| 12:30 PM | Monday to Friday |
 
-| Time | Days |
-|------|------|
-| ⏰ 8:00 AM IST | Monday to Friday |
-| ⏰ 12:30 PM IST | Monday to Friday |
+The GitHub Actions job persists `memory.db` back to the repository after every run so topic deduplication and voice drift tracking carry over across runs.
 
 ---
 
@@ -392,78 +323,56 @@ Actions tab → LIAM — LinkedIn Autonomous Agent → Run workflow
 
 ### Approval Buttons
 
-Every generated post arrives on your phone with 5 buttons:
+| Button | Behavior |
+|--------|----------|
+| Approve | Posts to LinkedIn after a random 60–480 second delay |
+| Edit Post | Bot prompts for your version — posts your exact text (10 min window) |
+| Regenerate | Rewrites the post on the same topic (max 3 attempts) |
+| New Topic | Runs full research cycle and returns a different trending topic |
+| Skip Today | Exits cleanly, no post |
 
-| Button | What It Does |
-|--------|-------------|
-| ✅ Approve | Posts immediately to LinkedIn |
-| ✏️ Edit Post | Bot asks you to type your version — posts that exact text |
-| 🔄 Regenerate | Generates a new post on the same topic (max 3 attempts) |
-| 🎯 New Topic | Researches a completely fresh trending topic |
-| ❌ Skip Today | Skips this post, LIAM exits cleanly |
-
-> If you ignore the approval message, LIAM auto-skips after 1 hour and sends a notification. The GitHub Actions job exits cleanly within the 90-minute timeout window.
+No response within 1 hour triggers an automatic skip. A reminder is sent at the 45-minute mark if the post is still waiting.
 
 ### Commands
 
-| Command | What It Returns |
-|---------|----------------|
-| `/start` | Welcome message and full command list |
+| Command | Output |
+|---------|--------|
+| `/start` | Available commands |
 | `/status` | Last post time, posts today, pending drafts |
 | `/history` | Last 5 published posts with dates and voice scores |
-| `/report` | Voice drift status and weekly performance summary |
+| `/report` | Voice drift status |
+
+---
+
+## Voice Profile and Scoring
+
+Every post is scored from 0 to 100 before being sent for approval. Posts below 70 are regenerated.
+
+| Component | Max | Criteria |
+|-----------|-----|----------|
+| Buzzword penalty | 30 | Deducts 10 per banned phrase found |
+| Length | 15 | 15 pts for 150–250 words, 10 pts for 100–300 |
+| Structure | 15 | Hook present, hashtags included, 3+ paragraphs |
+| Authenticity | 40 | First-person voice, sentence variety |
+
+The banned phrase check runs in Python after generation. If the LLM included a flagged phrase despite the prompt instruction, the post is discarded and the attempt counter increments. The highest-scoring attempt across all retries is returned — not the last one.
+
+When the rolling average of the last 10 voice scores drops below 65, LIAM sends an automatic warning to Telegram.
 
 ---
 
 ## Safety Guardrails
 
-LIAM has 6 layers of protection against accidental or spam posting. Every guardrail is enforced in code — not just configuration.
+Six checks run before every post. Any failure raises a `SafetyError` — the run exits without posting and sends a Telegram notification.
 
-| Guardrail | Rule | Where Enforced |
-|-----------|------|---------------|
-| Human approval | Required before every single post | `approval.py` |
-| Minimum gap | 4 hours between any two posts | `poster.py` |
-| Daily limit | Max 2 posts per day (configurable) | `poster.py` |
-| Weekdays only | No posting on Saturday or Sunday | `poster.py` |
-| Human-like delay | Random 60–480 second wait before API call | `poster.py` |
-| Approval timeout | Auto-skips after 1 hour of no response | `approval.py` |
-
-Violating any guardrail raises a `SafetyError` — the run exits cleanly without posting and sends a Telegram notification.
-
----
-
-## Voice Profile & Scoring
-
-LIAM scores every generated post from 0–100 before sending it for approval. A post must score ≥ 70 to proceed.
-
-| Component | Max Score | What It Checks |
-|-----------|-----------|---------------|
-| Buzzword penalty | 30 pts | Deducts for phrases in `banned_phrases.txt` |
-| Length | 15 pts | Optimal range: 150–250 words |
-| Structure | 15 pts | Hook present, hashtags included, paragraph count |
-| Authenticity | 40 pts | First person voice, sentence variety, personal tone |
-
-**Scoring flow:**
-
-```
-Generate post → Score it
-    │
-    ├── Score ≥ 70 → Send for Telegram approval
-    │
-    └── Score < 70 → Regenerate (attempt 2)
-            │
-            ├── Score ≥ 70 → Send for Telegram approval
-            │
-            └── Score < 70 → Regenerate (attempt 3)
-                    │
-                    ├── Score ≥ 70 → Send for Telegram approval
-                    │
-                    └── All 3 failed → Telegram alert sent
-                                       "Score Too Low — consider updating
-                                        sample_posts.txt"
-```
-
-**Post quality improves over time.** Add your most recent real LinkedIn posts to `sample_posts.txt` every 2–3 months as your writing style evolves. When the average score over last 10 posts drops below 65, LIAM sends an automatic voice drift warning to Telegram.
+| Rule | Value | Enforced in |
+|------|-------|-------------|
+| Human approval required | Always | `approval.py` |
+| Minimum gap between posts | 4 hours (uses publish time, not draft time) | `poster.py` |
+| Daily post limit | 2 (configurable) | `poster.py` |
+| Weekdays only | Monday–Friday | `poster.py` |
+| Human-like delay | 60–480 seconds random | `poster.py` |
+| Approval timeout | 1 hour | `approval.py` |
 
 ---
 
@@ -474,79 +383,68 @@ python -m pytest tests/ -v
 ```
 
 ```
-tests/test_guardrails.py    ✅ passed
-tests/test_image_gen.py     ✅ passed
-tests/test_memory.py        ✅ passed
-tests/test_poster.py        ✅ passed
-tests/test_react_loop.py    ✅ passed
-tests/test_research.py      ✅ passed
-tests/test_telegram.py      ✅ passed
-tests/test_voice_scorer.py  ✅ passed
-tests/test_writer.py        ✅ passed
+tests/test_guardrails.py     PASSED
+tests/test_image_gen.py      PASSED
+tests/test_memory.py         PASSED
+tests/test_poster.py         PASSED
+tests/test_react_loop.py     PASSED
+tests/test_research.py       PASSED
+tests/test_telegram.py       PASSED
+tests/test_voice_scorer.py   PASSED
+tests/test_writer.py         PASSED
 
-15 passed in X.XXs
+15 passed
 ```
+
+`test_react_loop.py` covers all 7 decision branches of the approval flow (approve, regenerate, edit, new_topic, skip, timeout, error) using mocks — no live API calls required.
 
 ---
 
 ## LinkedIn Token Renewal
 
-LinkedIn access tokens expire every **~60 days**. LIAM tracks this and sends a Telegram reminder 5 days before expiry.
+LinkedIn access tokens expire every ~60 days. LIAM sends a Telegram reminder 5 days before expiry.
 
 When you receive the reminder:
 
 ```bash
-# Run this on your local machine
 python tools/get_token.py
-
-# Follow the OAuth flow in your browser
-# Copy the new token that gets printed
-
-# Update it in GitHub Secrets:
-# Settings → Secrets → LINKEDIN_ACCESS_TOKEN → Update
+# Complete the browser OAuth flow
+# Copy the new token printed to terminal
 ```
+
+Then update `LINKEDIN_ACCESS_TOKEN` in your GitHub repository secrets.
 
 ---
 
 ## Known Limitations
 
-| Limitation | Impact | Workaround |
-|-----------|--------|-----------|
-| LinkedIn token expires every ~60 days | Manual renewal needed | LIAM sends 5-day advance warning |
-| Stability AI: 25 free credits total | Image generation stops after credits | Auto-falls back to HuggingFace FLUX (free, unlimited) |
-| RSS feeds update every 1–6 hours | Not truly real-time | Sufficient for twice-daily posting |
-| GitHub Actions is stateless | Memory resets each run | Topic variety handled naturally by RSS; quality controlled by Telegram approval |
-| `/pause` command not available on GitHub Actions | Can't pause scheduled runs mid-deployment | Disable the workflow in the Actions tab instead |
+| Limitation | Notes |
+|-----------|-------|
+| LinkedIn token expires every ~60 days | LIAM sends a 5-day advance reminder |
+| Stability AI: 25 free credits | Falls back automatically to HuggingFace (free, no credit limit) |
+| GitHub Actions is stateless | `memory.db` is committed back to the repo after each run to maintain state |
+| `/pause` command not functional on Actions | Disable the workflow from the Actions tab instead |
+| RSS feeds update every 1–6 hours | Not real-time, sufficient for twice-daily posting |
 
 ---
 
 ## Roadmap
 
-- [ ] Persistent memory via GitHub Gist (solves stateless limitation)
-- [ ] LinkedIn post analytics — impressions, likes, comments tracking
-- [ ] Multi-niche support with topic routing
+- [ ] LinkedIn post analytics — impressions, likes and comments pulled back via API
+- [ ] Persistent memory via GitHub Gist instead of committed SQLite file
+- [ ] Multi-niche topic routing
 - [ ] Web dashboard for post history and score trends
-- [ ] Auto-fetch content from saved LinkedIn article URLs
-
----
-
-## Author
-
-<div align="center">
-
-**Built by [Ansh Sinha](https://github.com/SinhaRepo)**
-
-Python Backend Developer — building in public in the Python / AI / Cloud niche.
-
-[GitHub](https://github.com/SinhaRepo) · [LinkedIn](https://linkedin.com/in/sinhaansh)
-
-</div>
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-Free to fork, adapt, and build your own version.
+MIT — see [LICENSE](LICENSE) for details.
 
 ---
+
+<div align="center">
+
+Built by [Ansh Sinha](https://github.com/SinhaRepo) · [LinkedIn](https://linkedin.com/in/sinhaansh)
+
+</div>
