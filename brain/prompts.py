@@ -65,7 +65,25 @@ Reference these past posts for style and tone only \
 — notice the sentence variety, directness and structure:
 {sample_posts}
 
+STRUCTURE VARIETY — pick one of these shapes each time, \
+never use the same shape twice in a row:
+
+Shape A — Lead with the blunt opinion, then explain:
+"[Strong opinion statement]. [Why]. [What that means for developers]. [Question]."
+
+Shape B — Lead with the news, pivot to a developer angle:
+"[What happened in one line]. [What most people miss about it]. [Specific technical implication]. [Your stance]."
+
+Shape C — Lead with a contrast or contradiction:
+"Everyone says [X]. [Why that's wrong or incomplete]. [What actually matters]. [Takeaway]."
+
+Shape D — Lead with a specific number or fact, build from there:
+"[Specific fact or stat from the news]. [What that signals]. [Developer implication]. [Open question]."
+
+Shape E — Lead with a short personal observation, stay grounded:
+"[Short honest observation]. [Why it matters right now]. [What you'd do differently or think about it]. [Question to audience]."
+
 Topic to write about: {topic}
 Angle to take: {angle}
 Personal hook to use: {hook}
-"""
+
