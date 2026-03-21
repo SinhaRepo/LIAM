@@ -68,6 +68,20 @@ def score_post(post_text: str) -> dict:
         "authenticity_score": authenticity_score
     }
 
+def contains_banned_phrase(post_text: str) -> str | None:
+    """
+    Hard code-level check — returns the first banned phrase found
+    in the post, or None if clean. This enforces the ban in Python,
+    not just via LLM prompt (which the model can ignore).
+    """
+    banned = get_banned_phrases()
+    text_lower = post_text.lower()
+    for phrase in banned:
+        if phrase.lower() in text_lower:
+            return phrase
+    return None
+
+
 def generate_and_score_post(topic: str, angle: str, hook: str, max_retries: int = 3) -> tuple[str, dict]:
     """Generates a post and rewrites if score is below 70, keeping track of the best one."""
     from rich.console import Console
@@ -81,6 +95,12 @@ def generate_and_score_post(topic: str, angle: str, hook: str, max_retries: int 
         post = generate_post(topic, angle, hook)
         
         if post and not post.startswith("Error"):
+            # Hard enforcement — if LLM used a banned phrase, force retry
+            violation = contains_banned_phrase(post)
+            if violation:
+                console.print(f"[yellow]Banned phrase detected: '{violation}'. Forcing retry...[/yellow]")
+                continue
+
             scores = score_post(post)
             # Log the voice score
             try:
