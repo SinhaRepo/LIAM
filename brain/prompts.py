@@ -86,4 +86,4 @@ Shape E — Lead with a short personal observation, stay grounded:
 Topic to write about: {topic}
 Angle to take: {angle}
 Personal hook to use: {hook}
-
+"""
