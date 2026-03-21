@@ -20,7 +20,7 @@ What’s your take on cloud security becoming a main product layer?
 POST 2:  
 GitHub Actions is underrated for solo developers.  
 
-You get free compute. No server. No credit card. Just push code, and it runs on schedule.  
+You get free compute. No server. No credit card. Just push code and it runs on schedule.  
 
 Most people use it only for CI/CD. But it can do so much more:  
 - Run scheduled Python scripts  
