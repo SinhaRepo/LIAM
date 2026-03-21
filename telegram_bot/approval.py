@@ -94,6 +94,21 @@ def request_approval(post_text: str, image_path: str = None,
 
             console.print("[cyan]Waiting for approval on Telegram...[/cyan]")
 
+            # 45-minute reminder — fires only if user hasn't responded yet
+            async def send_reminder():
+                await asyncio.sleep(2700)  # 45 minutes
+                if not done_event.is_set():
+                    try:
+                        await app.bot.send_message(
+                            chat_id=chat_id,
+                            text="⏰ *Reminder:* A post is waiting for your approval.\n15 minutes left before it times out.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+
+            asyncio.ensure_future(send_reminder())
+
             # Register callback handler on SHARED app (no new polling!)
             async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 query = update.callback_query
