@@ -96,9 +96,15 @@ def generate_and_score_post(topic: str, angle: str, hook: str, max_retries: int 
         
         if post and not post.startswith("Error"):
             # Hard enforcement — if LLM used a banned phrase, force retry
+            # but still track it as a last-resort fallback so best_post is never None
             violation = contains_banned_phrase(post)
             if violation:
                 console.print(f"[yellow]Banned phrase detected: '{violation}'. Forcing retry...[/yellow]")
+                # Track as fallback only — score it so we have something if all retries fail
+                fallback_scores = score_post(post)
+                if best_post is None or fallback_scores["total_score"] > best_scores["total_score"]:
+                    best_post = post
+                    best_scores = fallback_scores
                 continue
 
             scores = score_post(post)
