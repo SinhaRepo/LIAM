@@ -79,7 +79,8 @@ def agent_loop(user_prompt: str = None):
     console.print("[yellow]ACT:[/yellow] Generating supplementary image...")
     image_path = None
     try:
-        image_prompt = f"Minimalist professional tech vector art representing {topic_str}"
+        image_prompt = _generate_image_prompt(topic_str, post)
+        console.print(f"[dim]Image prompt: {image_prompt}[/dim]")
         image_path = generate_image(image_prompt)
         console.print("[green]OBSERVE:[/green] Image generated successfully.")
     except Exception as e:
@@ -203,6 +204,56 @@ def agent_loop(user_prompt: str = None):
         pass
         
     console.print("[bold magenta]🏁 LIAM ReAct Loop Completed[/bold magenta]\n")
+
+def _generate_image_prompt(topic: str, post_text: str) -> str:
+    """
+    Uses Groq to generate a visually concrete image prompt
+    from the post topic and content. Falls back to a generic
+    prompt if the API call fails.
+    """
+    try:
+        import os
+        from groq import Groq
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("No GROQ_API_KEY")
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You generate image prompts for an AI image generator. "
+                        "Output ONE sentence only. Be visually specific — describe "
+                        "concrete objects, colors, composition and style. "
+                        "Professional and LinkedIn-appropriate. "
+                        "No text or words in the image. "
+                        "No people or faces. "
+                        "Do not explain. Just output the prompt."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"LinkedIn post topic: {topic}\n\n"
+                        f"Post content: {post_text[:300]}\n\n"
+                        "Write a single image generation prompt that visually "
+                        "represents the core concept of this post."
+                    )
+                }
+            ],
+            max_tokens=100,
+            temperature=0.7,
+        )
+        prompt = response.choices[0].message.content.strip().strip('"')
+        return prompt
+    except Exception as e:
+        console.print(f"[dim yellow]Image prompt generation failed, using fallback: {e}[/dim yellow]")
+        # Clean fallback — strip the raw headline, use a generic tech visual
+        return "Minimalist flat design illustration of interconnected nodes and data streams on a dark background, blue and teal accent colors, professional tech aesthetic"
+
 
 def _safe_notify_error(msg: str):
     """Safely dispatches async notification from synchronous execution."""
