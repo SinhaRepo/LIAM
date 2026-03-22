@@ -1,6 +1,5 @@
-import time
 import os
-from datetime import datetime
+import random
 from modules.research import get_trending_topics
 from modules.voice_scorer import generate_and_score_post
 from modules.image_gen import generate_image
@@ -11,18 +10,61 @@ from rich.console import Console
 
 console = Console()
 
+ANGLES = [
+    "Technical learning",
+    "Lessons from failure",
+    "Contrarian opinion",
+    "Real project experience",
+    "What I wish I knew earlier",
+    "Behind the scenes of a real project",
+]
+
+HOOKS = [
+    "Personal insight",
+    "Surprising discovery",
+    "Common mistake I made",
+    "Honest take after shipping it",
+    "Something I got wrong for years",
+    "A question that changed how I think",
+]
+
+
+def _save_and_mark(topic: str, content: str, image_path, score: int):
+    m = Memory()
+    m.save_post(topic=topic, content=content, image_path=image_path,
+                score=score, was_approved=True)
+    post_id = m.get_last_post_id()
+    if post_id:
+        m.mark_as_posted(post_id)
+
+
+def _publish(post_text: str, image_path, topic: str, score: int):
+    poster = Poster()
+    try:
+        res = (poster.post_with_image(text=post_text, image_path=image_path, human_approved=True)
+               if image_path else
+               poster.post_text_only(text=post_text, human_approved=True))
+        if not res.get("success"):
+            raise Exception(res.get("error"))
+        _save_and_mark(topic, post_text, image_path, score)
+        console.print("[green]✅ Posted to LinkedIn successfully![/green]")
+    except Exception as e:
+        msg = f"Failed to post to LinkedIn API: {e}. Saving draft."
+        console.print(f"[red]{msg}[/red]")
+        _safe_notify_error(msg)
+        Memory().save_post(topic=topic, content=post_text, image_path=image_path,
+                           score=score, was_approved=True)
+
+
 def agent_loop(user_prompt: str = None):
     console.print("\n[bold magenta]🧠 LIAM ReAct Loop Started[/bold magenta]")
-    
+
+    # 1. Research or use provided topic
     topic_str = user_prompt
-    
-    # 1. THINK & DECIDE: Research or Direct Prompt?
     if not topic_str:
-        console.print("[cyan]THINK:[/cyan] No prompt provided. I need to research trending topics.")
-        console.print("[yellow]ACT:[/yellow] Calling research module...")
+        console.print("[cyan]THINK:[/cyan] Researching trending topics...")
         try:
-            research_data = get_trending_topics()
-            topic_str = research_data.get("recommended_topic")
+            topic_str = get_trending_topics().get("recommended_topic")
             console.print(f"[green]OBSERVE:[/green] Chose topic: {topic_str}")
         except Exception as e:
             msg = f"Research phase failed: {e}"
@@ -30,243 +72,134 @@ def agent_loop(user_prompt: str = None):
             _safe_notify_error(msg)
             return
     else:
-        console.print(f"[cyan]THINK:[/cyan] User provided explicit prompt: '{topic_str}'")
+        console.print(f"[cyan]THINK:[/cyan] Using prompt: '{topic_str}'")
 
-    # 2. ACT: Generate Post
-    console.print("[yellow]ACT:[/yellow] Generating post content and scoring...")
+    # 2. Generate post
+    console.print("[yellow]ACT:[/yellow] Generating post content...")
     try:
-        import random
-        
-        ANGLES = [
-            "Technical learning",
-            "Lessons from failure",
-            "Contrarian opinion",
-            "Tutorial walkthrough",
-            "Real project experience",
-            "What I wish I knew earlier",
-            "Behind the scenes of a real project"
-        ]
-        
-        HOOKS = [
-            "Personal insight",
-            "Surprising discovery",
-            "Common mistake I made",
-            "What nobody tells you",
-            "Honest take after shipping it",
-            "Something I got wrong for years",
-            "A question that changed how I think"
-        ]
-        
-        chosen_angle = random.choice(ANGLES)
-        chosen_hook = random.choice(HOOKS)
-        
-        console.print(f"[dim]Angle: {chosen_angle} | Hook: {chosen_hook}[/dim]")
-        
-        post, scores = generate_and_score_post(
-            topic=topic_str,
-            angle=chosen_angle,
-            hook=chosen_hook
-        )
+        angle, hook = random.choice(ANGLES), random.choice(HOOKS)
+        console.print(f"[dim]Angle: {angle} | Hook: {hook}[/dim]")
+        post, scores = generate_and_score_post(topic=topic_str, angle=angle, hook=hook)
         if not post or post.startswith("Error"):
-            raise ValueError(f"Generation returned an error: {post}")
+            raise ValueError(f"Generation error: {post}")
     except Exception as e:
-        msg = f"Groq generation failed: {e}. Retrying in 1 hour."
+        msg = f"Groq generation failed: {e}."
         console.print(f"[red]{msg}[/red]")
         _safe_notify_error(msg)
         return
 
-    # 3. ACT: Generate Image
-    console.print("[yellow]ACT:[/yellow] Generating supplementary image...")
+    # 3. Generate image
     image_path = None
     try:
         image_prompt = _generate_image_prompt(topic_str, post)
         console.print(f"[dim]Image prompt: {image_prompt}[/dim]")
         image_path = generate_image(image_prompt)
-        console.print("[green]OBSERVE:[/green] Image generated successfully.")
+        if image_path:
+            console.print("[green]OBSERVE:[/green] Image generated.")
     except Exception as e:
-        console.print(f"[yellow]Warning: Image generation failed, falling back to text-only. Error: {e}[/yellow]")
+        console.print(f"[yellow]Image generation failed: {e}[/yellow]")
 
-    # 4. DECIDE: Approval
+    # 4. Approval gate
     threshold = int(os.environ.get("VOICE_SCORE_THRESHOLD", 70))
-    if scores['total_score'] >= threshold:
-        console.print("[cyan]THINK:[/cyan] Score is good. Requesting human approval via Telegram.")
-        decision = request_approval(post_text=post, image_path=image_path, score=scores['total_score'], details=f"Topic: {topic_str}")
-        
-        console.print(f"[green]OBSERVE:[/green] Human decision: {decision}")
-        
+    if scores['total_score'] < threshold:
+        msg = (f"⚠️ *Post Skipped — Score Too Low*\n\nTopic: {topic_str}\n"
+               f"Score: {scores['total_score']}/100 (threshold: {threshold})\n\n"
+               "Consider updating `voice_profile/sample_posts.txt`.")
+        console.print(f"[red]Score {scores['total_score']} below threshold. Aborting.[/red]")
+        _safe_notify(msg)
+    else:
+        console.print("[cyan]THINK:[/cyan] Score good. Requesting Telegram approval.")
+        decision = request_approval(post_text=post, image_path=image_path,
+                                    score=scores['total_score'], details=f"Topic: {topic_str}")
+        console.print(f"[green]OBSERVE:[/green] Decision: {decision}")
+
         if decision == "approve":
-            console.print("[yellow]ACT:[/yellow] Posting to LinkedIn...")
-            poster = Poster()
-            try:
-                if image_path:
-                    res = poster.post_with_image(text=post, image_path=image_path, human_approved=True)
-                else:
-                    res = poster.post_text_only(text=post, human_approved=True)
-                    
-                if not res.get("success"):
-                    raise Exception(res.get("error"))
-                    
-                # Save to memory AFTER successful post with was_approved=True
-                m = Memory()
-                post_id = m.save_post(topic=topic_str, content=post, image_path=image_path, score=scores['total_score'], was_approved=True)
-                post_id = m.get_last_post_id()
-                if post_id:
-                    m.mark_as_posted(post_id)
-                console.print("[green]✅ Posted to LinkedIn successfully![/green]")
-                    
-            except Exception as e:
-                msg = f"Failed to post to LinkedIn API: {e}. Saving draft to memory.db to retry next window."
-                console.print(f"[red]{msg}[/red]")
-                _safe_notify_error(msg)
-                # Save as an approved draft that failed to post
-                m = Memory()
-                m.save_post(topic=topic_str, content=post, image_path=image_path, score=scores['total_score'], was_approved=True)
+            _publish(post, image_path, topic_str, scores['total_score'])
 
         elif decision == "regenerate":
-            console.print("[yellow]ACT:[/yellow] Regenerating post with same topic...")
             retry_count = getattr(agent_loop, '_retry_count', 0)
             if retry_count >= 2:
-                console.print("[red]Max 3 regenerations reached. Skipping.[/red]")
+                console.print("[red]Max 3 regenerations reached.[/red]")
                 _safe_notify("🔄 Max regenerations reached (3/3). Skipped.")
                 agent_loop._retry_count = 0
                 return
             agent_loop._retry_count = retry_count + 1
-            console.print(f"[dim]Regeneration attempt {retry_count + 1}/3[/dim]")
             agent_loop(topic_str)
             return
 
         elif decision == "edit":
-            console.print("[yellow]ACT:[/yellow] Waiting for your edited text on Telegram...")
             from telegram_bot.approval import request_text_reply
             edited_text = request_text_reply(timeout=600)
             if edited_text:
-                console.print("[green]OBSERVE:[/green] Received edited text. Posting...")
-                poster = Poster()
-                try:
-                    if image_path:
-                        res = poster.post_with_image(text=edited_text, image_path=image_path, human_approved=True)
-                    else:
-                        res = poster.post_text_only(text=edited_text, human_approved=True)
-                    if not res.get("success"):
-                        raise Exception(res.get("error"))
-                    m = Memory()
-                    m.save_post(topic=topic_str, content=edited_text, image_path=image_path, score=scores['total_score'], was_approved=True)
-                    post_id = m.get_last_post_id()
-                    if post_id:
-                        m.mark_as_posted(post_id)
-                    console.print("[green]✅ Edited post published to LinkedIn![/green]")
-                except Exception as e:
-                    msg = f"Failed to post edited version: {e}. Saving draft."
-                    console.print(f"[red]{msg}[/red]")
-                    _safe_notify_error(msg)
-                    m = Memory()
-                    m.save_post(topic=topic_str, content=edited_text, image_path=image_path, score=scores['total_score'], was_approved=True)
+                _publish(edited_text, image_path, topic_str, scores['total_score'])
             else:
-                console.print("[yellow]Edit timed out after 10 minutes. Skipping.[/yellow]")
+                console.print("[yellow]Edit timed out.[/yellow]")
                 _safe_notify("✏️ Edit timeout (10 min). Post skipped.")
 
         elif decision == "new_topic":
-            console.print("[yellow]ACT:[/yellow] Researching a completely new topic...")
-            _safe_notify("🎯 Got it! Finding a fresh trending topic for you...")
+            _safe_notify("🎯 Got it! Finding a fresh trending topic...")
             agent_loop._retry_count = 0
-            agent_loop()  # no topic = auto-research
+            agent_loop()
             return
 
         elif decision in ("skip", "timeout"):
             msg = "timeout after 1 hour" if decision == "timeout" else "skipped by you"
-            console.print(f"[yellow]ACT:[/yellow] Post {msg}.")
-            _safe_notify(f"❌ Post skipped ({decision}). See you next run! 👋")
+            _safe_notify(f"❌ Post {msg}. See you next run! 👋")
 
         elif decision == "error":
-            console.print("[red]Telegram approval error. Post not published.[/red]")
             _safe_notify_error("Approval flow error. Check logs.")
 
-        # Always reset retry counter after terminal decision
         agent_loop._retry_count = 0
-    else:
-        msg = (
-            f"⚠️ *Post Skipped — Score Too Low*\n\n"
-            f"Topic: {topic_str}\n"
-            f"Best score after 3 attempts: {scores['total_score']}/100\n"
-            f"Threshold: {threshold}/100\n\n"
-            f"Consider updating `voice_profile/sample_posts.txt` "
-            f"with your recent posts to improve scoring."
-        )
-        console.print(f"[red]THINK:[/red] Score {scores['total_score']} is too low after 3 attempts. Aborting.")
-        _safe_notify(msg)
-        
-    # Phase 6 Fix: Auto voice drift warning
+
+    # Voice drift check
     try:
         if Memory().check_voice_drift():
-            console.print("[bold red]🚨 VOICE DRIFT DETECTED: Average score < 65.[/bold red]")
-            _safe_notify("⚠️ *Voice Drift Alert:* Your last 10 posts are averaging below 65/100 authenticity score. Consider updating your `sample_posts.txt`.")
-    except Exception as e:
+            console.print("[bold red]🚨 VOICE DRIFT DETECTED[/bold red]")
+            _safe_notify("⚠️ *Voice Drift Alert:* Last 10 posts averaging below 65/100. "
+                         "Update `sample_posts.txt`.")
+    except Exception:
         pass
-        
+
     console.print("[bold magenta]🏁 LIAM ReAct Loop Completed[/bold magenta]\n")
 
-def _generate_image_prompt(topic: str, post_text: str) -> str:
-    """
-    Uses Groq to generate a visually concrete image prompt
-    from the post topic and content. Falls back to a generic
-    prompt if the API call fails.
-    """
-    try:
-        import os
-        from groq import Groq
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            raise ValueError("No GROQ_API_KEY")
 
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
+def _generate_image_prompt(topic: str, post_text: str) -> str:
+    try:
+        from groq import Groq
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+        resp = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You generate image prompts for an AI image generator. "
-                        "Output ONE sentence only. Be visually specific — describe "
-                        "concrete objects, colors, composition and style. "
-                        "Professional and LinkedIn-appropriate. "
-                        "No text or words in the image. "
-                        "No people or faces. "
-                        "Do not explain. Just output the prompt."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"LinkedIn post topic: {topic}\n\n"
-                        f"Post content: {post_text[:300]}\n\n"
-                        "Write a single image generation prompt that visually "
-                        "represents the core concept of this post."
-                    )
-                }
+                {"role": "system", "content": (
+                    "Output ONE image generation prompt sentence. Visually specific — "
+                    "objects, colors, composition, style. Professional, LinkedIn-appropriate. "
+                    "No text, no faces. Just the prompt."
+                )},
+                {"role": "user", "content": (
+                    f"Topic: {topic}\nPost: {post_text[:300]}\n"
+                    "Write a single image prompt for this post."
+                )}
             ],
-            max_tokens=100,
-            temperature=0.7,
+            max_tokens=100, temperature=0.7,
         )
-        prompt = response.choices[0].message.content.strip().strip('"')
-        return prompt
+        return resp.choices[0].message.content.strip().strip('"')
     except Exception as e:
-        console.print(f"[dim yellow]Image prompt generation failed, using fallback: {e}[/dim yellow]")
-        # Clean fallback — strip the raw headline, use a generic tech visual
-        return "Minimalist flat design illustration of interconnected nodes and data streams on a dark background, blue and teal accent colors, professional tech aesthetic"
+        console.print(f"[dim yellow]Image prompt fallback: {e}[/dim yellow]")
+        return ("Minimalist flat design of interconnected nodes and data streams, "
+                "dark background, blue and teal accents, professional tech aesthetic")
 
 
 def _safe_notify_error(msg: str):
-    """Safely dispatches async notification from synchronous execution."""
     try:
         from telegram_bot.notifications import notify_error, send_notification_sync
         send_notification_sync(notify_error(msg))
-    except Exception as e:
-        console.print(f"[red]Could not notify Telegram locally about error: {e}[/red]")
+    except Exception:
+        pass
+
 
 def _safe_notify(msg: str):
-    """Safely dispatches an informational async notification from synchronous execution."""
     try:
         from telegram_bot.notifications import send_notification, send_notification_sync
         send_notification_sync(send_notification(msg))
-    except Exception as e:
-        console.print(f"[red]Could not send Telegram notification: {e}[/red]")
+    except Exception:
+        pass
