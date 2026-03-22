@@ -65,8 +65,7 @@ GitHub Actions (cron: 8:00 AM + 12:30 PM IST, Mon–Fri)
     │          Retry if score < 70 (max 3 attempts)   │
     │    |                                            │
     │  ACT     Generate image prompt via Groq         │
-    │          Generate image via Stability AI        │
-    │          Fall back to HuggingFace if needed     │
+    │          Generate image via HuggingFace FLUX    │
     │    |                                            │
     │  ACT     Send Telegram approval message         │
     │          5 action buttons, 45-min reminder      │
@@ -135,8 +134,7 @@ Banned phrases are enforced at the Python level in addition to the LLM prompt. I
 | Layer | Tool | Notes |
 |-------|------|-------|
 | LLM | Groq API — Llama 3.3 70B | Post generation and image prompt generation |
-| Image (primary) | Stability AI REST API | 25 free credits on signup |
-| Image (fallback) | HuggingFace FLUX.1-schnell | Automatic failover |
+| Image generation | HuggingFace FLUX.1-schnell | Free |
 | Hosting | GitHub Actions | Free on public repos |
 | Mobile control | Telegram Bot API | Approval flow and commands |
 | Publishing | LinkedIn Official API (ugcPosts) | No scraping |
@@ -161,7 +159,7 @@ LIAM/
 ├── cli/
 │   └── interface.py              # Rich terminal panel (local runs)
 ├── modules/
-│   ├── image_gen.py              # Stability AI primary, HuggingFace fallback
+│   ├── image_gen.py              # HuggingFace FLUX image generation
 │   ├── memory.py                 # SQLite CRUD — history, deduplication, drift detection
 │   ├── poster.py                 # LinkedIn API, safety checks, 429 retry
 │   ├── research.py               # RSS + Google Search, keyword filtering, deduplication
@@ -196,8 +194,7 @@ LIAM/
 | Groq | LLM — post and image prompt generation | [console.groq.com](https://console.groq.com/) |
 | Telegram | Approval UI and bot commands | [@BotFather](https://t.me/BotFather) |
 | LinkedIn Developer | Official posting API | [developer.linkedin.com](https://developer.linkedin.com/) |
-| HuggingFace | Image generation fallback | [huggingface.co](https://huggingface.co/) |
-| Stability AI | Primary image generation | [platform.stability.ai](https://platform.stability.ai/) |
+| HuggingFace | Image generation | [huggingface.co](https://huggingface.co/) |
 
 ### LinkedIn Developer App
 
@@ -222,7 +219,6 @@ cp .env.example .env
 
 ```env
 GROQ_API_KEY=
-STABILITY_API_KEY=
 HUGGINGFACE_TOKEN=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
@@ -421,7 +417,7 @@ Then update `LINKEDIN_ACCESS_TOKEN` in your GitHub repository secrets.
 | Limitation | Notes |
 |-----------|-------|
 | LinkedIn token expires every ~60 days | LIAM sends a 5-day advance reminder |
-| Stability AI: 25 free credits | Falls back automatically to HuggingFace (free, no credit limit) |
+| HuggingFace rate limits | Free tier has request limits — image generation may occasionally be slow or fail | Run will continue as text-only post if image fails |
 | GitHub Actions is stateless | `memory.db` is committed back to the repo after each run to maintain state |
 | `/pause` command not functional on Actions | Disable the workflow from the Actions tab instead |
 | RSS feeds update every 1–6 hours | Not real-time, sufficient for twice-daily posting |
