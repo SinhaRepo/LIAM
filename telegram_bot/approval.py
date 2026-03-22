@@ -68,29 +68,36 @@ def request_approval(post_text: str, image_path: str = None,
                 message += f"📈 *Confidence Score:* {score}/100\n"
             message += f"\n─────────────────────────────\n\n✍️ *Draft Post:*\n\n{post_text}\n\n─────────────────────────────"
 
-            # Send message with buttons
-            if image_path and os.path.exists(image_path):
-                if len(message) <= 1000:
-                    with open(image_path, "rb") as photo:
-                        await app.bot.send_photo(
-                            chat_id=chat_id, photo=photo,
-                            caption=message, parse_mode="Markdown",
-                            reply_markup=get_approval_keyboard()
-                        )
-                else:
-                    with open(image_path, "rb") as photo:
-                        await app.bot.send_photo(chat_id=chat_id, photo=photo)
-                    await app.bot.send_message(
-                        chat_id=chat_id, text=message[:4000],
-                        parse_mode="Markdown",
-                        reply_markup=get_approval_keyboard()
-                    )
-            else:
+            # Send message with buttons (retry with text-only on timeout)
+            async def _send_message():
+                if image_path and os.path.exists(image_path):
+                    try:
+                        if len(message) <= 1000:
+                            with open(image_path, "rb") as photo:
+                                await app.bot.send_photo(
+                                    chat_id=chat_id, photo=photo,
+                                    caption=message, parse_mode="Markdown",
+                                    reply_markup=get_approval_keyboard()
+                                )
+                        else:
+                            with open(image_path, "rb") as photo:
+                                await app.bot.send_photo(chat_id=chat_id, photo=photo)
+                            await app.bot.send_message(
+                                chat_id=chat_id, text=message[:4000],
+                                parse_mode="Markdown",
+                                reply_markup=get_approval_keyboard()
+                            )
+                        return
+                    except Exception as img_err:
+                        console.print(f"[yellow]Photo send failed ({img_err}), falling back to text.[/yellow]")
+                # Text-only fallback
                 await app.bot.send_message(
                     chat_id=chat_id, text=message[:4000],
                     parse_mode="Markdown",
                     reply_markup=get_approval_keyboard()
                 )
+
+            await _send_message()
 
             console.print("[cyan]Waiting for approval on Telegram...[/cyan]")
 
