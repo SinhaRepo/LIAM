@@ -30,15 +30,6 @@ async def notify_daily_summary(posts_count: int, new_followers: int = 0):
     message = f"🌙 *Daily Summary*\n\nPosts made today: {posts_count}\nNew followers tracked: {new_followers}\n\nGoodnight! 🤖"
     await send_notification(message)
 
-async def notify_voice_drift():
-    """Notification for dropping authenticity scores."""
-    message = (
-        "⚠️ *Voice Drift Detected!*\n\n"
-        "Last 10 posts scoring below 65/100 on authenticity.\n"
-        "Your posts may be sounding too generic.\n\n"
-        "Recommended: Review last 3 posts and update voice profile with fresh examples."
-    )
-    await send_notification(message)
 
 async def notify_token_expiry(days_left: int = 5):
     """Notification reminding Ansh to refresh LinkedIn tokens."""
