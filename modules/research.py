@@ -1,7 +1,6 @@
-import sqlite3
 import os
 import random
-from datetime import datetime, timedelta
+
 import feedparser
 from googlesearch import search
 from rich.console import Console
