@@ -124,13 +124,6 @@ class Memory:
             # Convert to regular dicts for JSON serialization
             return [dict(row) for row in cursor.fetchall()]
 
-    def update_post_approved(self, post_id: int):
-        """Mark a post as approved after human review."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE posts SET was_approved = 1 WHERE id = ?', (post_id,))
-            conn.commit()
-
     def mark_as_posted(self, post_id: int):
         """Mark an approved post as successfully posted to LinkedIn."""
         with self._get_connection() as conn:
