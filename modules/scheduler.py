@@ -1,6 +1,5 @@
 import os
 import time
-import asyncio
 import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -36,7 +35,6 @@ def morning_post_check():
         # We assume any recently generated draft that we failed to post due to API error is cached. 
         console.print("[dim]Checking for approved drafts waiting to post...[/dim]")
         
-        history = m.get_post_history(10)
         draft_posted = False
         drafts = m.get_unposted_approved_drafts(limit=5)
         
@@ -65,7 +63,6 @@ def daily_summary():
     console.print("\n[bold blue]⏰ SCHEDULED JOB: Daily Summary (9PM)[/bold blue]")
     try:
         m = Memory()
-        history = m.get_post_history(10)
         today_str = datetime.now().strftime("%Y-%m-%d")
         count = sum(1 for p in history if p['date'].startswith(today_str))
         
