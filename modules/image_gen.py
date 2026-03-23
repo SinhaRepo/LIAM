@@ -1,6 +1,5 @@
 import os
 import time
-import base64
 import requests
 from rich.console import Console
 
@@ -18,16 +17,6 @@ _PROVIDERS = [
         ),
         "parse": lambda r: r.content,
     },
-    {
-        "name": "Pollinations",
-        "env": None,  # No API key needed
-        "fn": lambda prompt, key: requests.get(
-            f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}",
-            params={"width": 1024, "height": 1024, "nologo": "true", "model": "flux"},
-            timeout=60
-        ),
-        "parse": lambda r: r.content,
-    },
 ]
 
 
@@ -41,11 +30,10 @@ def generate_image(prompt: str, output_filename: str = None) -> str:
     console.print(f"[dim]Prompt: {prompt[:100]}...[/dim]")
 
     for p in _PROVIDERS:
-        # Skip if env key required but not set
-        if p["env"] and not os.environ.get(p["env"]):
+        key = os.environ.get(p["env"])
+        if not key:
             console.print(f"[yellow]{p['env']} not set, skipping {p['name']}[/yellow]")
             continue
-        key = os.environ.get(p["env"]) if p["env"] else None
         try:
             resp = p["fn"](prompt, key)
             if resp.status_code == 200:
