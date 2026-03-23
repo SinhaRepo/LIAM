@@ -10,8 +10,10 @@ from rich.console import Console
 console = Console()
 load_dotenv()
 
+
 class SafetyError(Exception):
     pass
+
 
 class Poster:
     def __init__(self):
@@ -19,57 +21,63 @@ class Poster:
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
             "X-Restli-Protocol-Version": "2.0.0",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         self.memory = Memory()
         self.max_posts_per_day = int(os.environ.get("MAX_POSTS_PER_DAY", 2))
+        self._profile_id: str | None = None   # cached after first HTTP call
 
     def get_profile_id(self) -> str:
+        """Fetch once, cache for lifetime of this Poster instance."""
+        if self._profile_id:
+            return self._profile_id
         if not self.access_token:
             return "testing_id_missing_token"
         resp = requests.get(
             "https://api.linkedin.com/v2/userinfo",
             headers={"Authorization": f"Bearer {self.access_token}"},
-            timeout=30
+            timeout=30,
         )
         if resp.status_code == 200:
-            return resp.json().get("sub", "testing_id_no_sub_found")
-        console.print(f"[red]Error fetching profile: {resp.status_code}[/red]")
-        return f"testing_id_auth_failed_{resp.status_code}"
+            self._profile_id = resp.json().get("sub", "testing_id_no_sub_found")
+        else:
+            console.print(f"[red]Error fetching profile: {resp.status_code}[/red]")
+            self._profile_id = f"testing_id_auth_failed_{resp.status_code}"
+        return self._profile_id
 
     def perform_safety_checks(self, human_approved: bool):
         if not human_approved:
-            raise SafetyError("Post was not approved by a human. Aborting.")
+            raise SafetyError("Post was not approved by a human.")
         now = datetime.now()
         if now.weekday() >= 5:
             raise SafetyError("Weekend posting is disabled.")
+
         today_str = now.strftime("%Y-%m-%d")
         posts_today = 0
+
         for post in self.memory.get_post_history(50):
+            posted_at_str = post.get("posted_at")
+            if not posted_at_str:
+                continue
             try:
-                posted_at_str = post.get('posted_at')
-                if not posted_at_str:
-                    continue
                 post_date = datetime.fromisoformat(posted_at_str)
-                if post_date.strftime("%Y-%m-%d") == today_str:
-                    posts_today += 1
-                if now - post_date < timedelta(hours=3):
-                    raise SafetyError(f"Last post was less than 3 hours ago ({now - post_date}).")
-            except SafetyError:
-                raise
             except (ValueError, TypeError):
-                pass
+                continue
+            if post_date.strftime("%Y-%m-%d") == today_str:
+                posts_today += 1
+            if now - post_date < timedelta(hours=3):
+                raise SafetyError(f"Last post was less than 3 hours ago ({now - post_date}).")
+
         if posts_today >= self.max_posts_per_day:
-            raise SafetyError(f"Daily post limit reached ({posts_today}/{self.max_posts_per_day}).")
+            raise SafetyError(f"Daily limit reached ({posts_today}/{self.max_posts_per_day}).")
         console.print("[green]✓ All safety checks passed.[/green]")
         return True
 
     def _make_post_request(self, payload: dict) -> requests.Response:
-        """POST to LinkedIn with one 429 retry."""
         resp = requests.post("https://api.linkedin.com/v2/ugcPosts",
                              headers=self.headers, json=payload, timeout=30)
         if resp.status_code == 429:
-            retry_after = int(resp.headers.get('Retry-After', 60))
+            retry_after = int(resp.headers.get("Retry-After", 60))
             console.print(f"[yellow]Rate limited. Retrying in {retry_after}s...[/yellow]")
             from telegram_bot.notifications import send_notification_sync, notify_error
             send_notification_sync(notify_error(f"LinkedIn rate limited. Retrying in {retry_after}s"))
@@ -81,14 +89,15 @@ class Poster:
     def _handle_response(self, resp: requests.Response, label: str) -> dict:
         if resp.status_code == 201:
             post_id = resp.headers.get("x-restli-id", "unknown")
+            url = f"https://www.linkedin.com/feed/update/{post_id}"
             console.print(f"[green]Post published! ID: {post_id}[/green]")
-            self._notify_telegram(label, f"https://www.linkedin.com/feed/update/{post_id}")
-            return {"success": True, "post_id": post_id,
-                    "url": f"https://www.linkedin.com/feed/update/{post_id}"}
+            self._notify_telegram(label, url)
+            return {"success": True, "post_id": post_id, "url": url}
         console.print(f"[red]Failed to post: {resp.text}[/red]")
         return {"success": False, "error": resp.text}
 
-    def post_text_only(self, text: str, human_approved: bool = False, dry_run: bool = False) -> dict:
+    def _safety_gate(self, human_approved: bool, dry_run: bool):
+        """Shared safety check + dry_run guard for both post methods."""
         try:
             self.perform_safety_checks(human_approved)
         except SafetyError as e:
@@ -96,32 +105,38 @@ class Poster:
                 console.print("[yellow]DRY RUN: Bypassing weekend check.[/yellow]")
             else:
                 raise
-        if dry_run:
-            return {"success": True, "post_id": "urn:li:share:test12345", "url": "https://linkedin.com/test"}
 
+    def _human_delay(self):
         delay = random.randint(60, 480)
         console.print(f"[dim]Delaying {delay}s...[/dim]")
         time.sleep(delay)
 
+    def post_text_only(self, text: str, human_approved: bool = False,
+                       dry_run: bool = False) -> dict:
+        self._safety_gate(human_approved, dry_run)
+        if dry_run:
+            return {"success": True, "post_id": "urn:li:share:test12345",
+                    "url": "https://linkedin.com/test"}
+        self._human_delay()
         urn = f"urn:li:person:{self.get_profile_id()}"
         payload = {
             "author": urn, "lifecycleState": "PUBLISHED",
             "specificContent": {"com.linkedin.ugc.ShareContent": {
                 "shareCommentary": {"text": text},
-                "shareMediaCategory": "NONE"
+                "shareMediaCategory": "NONE",
             }},
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
         }
         console.print("[cyan]Publishing text post...[/cyan]")
         return self._handle_response(self._make_post_request(payload), "Text Post")
 
-    def upload_image(self, image_path: str) -> str:
-        urn = f"urn:li:person:{self.get_profile_id()}"
+    def upload_image(self, image_path: str) -> str | None:
+        urn = f"urn:li:person:{self.get_profile_id()}"   # cached — no extra HTTP call
         payload = {"registerUploadRequest": {
             "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
             "owner": urn,
             "serviceRelationships": [{"relationshipType": "OWNER",
-                                       "identifier": "urn:li:userGeneratedContent"}]
+                                       "identifier": "urn:li:userGeneratedContent"}],
         }}
         console.print("[dim]Registering image upload...[/dim]")
         resp = requests.post("https://api.linkedin.com/v2/assets?action=registerUpload",
@@ -144,26 +159,17 @@ class Poster:
         console.print(f"[red]Image upload failed: {up.text}[/red]")
         return None
 
-    def post_with_image(self, text: str, image_path: str, human_approved: bool = False, dry_run: bool = False) -> dict:
-        try:
-            self.perform_safety_checks(human_approved)
-        except SafetyError as e:
-            if dry_run and "Weekend posting" in str(e):
-                console.print("[yellow]DRY RUN: Bypassing weekend check.[/yellow]")
-            else:
-                raise
+    def post_with_image(self, text: str, image_path: str,
+                        human_approved: bool = False, dry_run: bool = False) -> dict:
+        self._safety_gate(human_approved, dry_run)
         if dry_run:
-            return {"success": True, "post_id": "urn:li:share:testimg123", "url": "https://linkedin.com/test"}
-
-        delay = random.randint(60, 480)
-        console.print(f"[dim]Delaying {delay}s...[/dim]")
-        time.sleep(delay)
-
+            return {"success": True, "post_id": "urn:li:share:testimg123",
+                    "url": "https://linkedin.com/test"}
+        self._human_delay()
         asset_urn = self.upload_image(image_path)
         if not asset_urn:
             return {"success": False, "error": "Image upload failed"}
-
-        urn = f"urn:li:person:{self.get_profile_id()}"
+        urn = f"urn:li:person:{self.get_profile_id()}"   # still cached
         payload = {
             "author": urn, "lifecycleState": "PUBLISHED",
             "specificContent": {"com.linkedin.ugc.ShareContent": {
@@ -172,9 +178,9 @@ class Poster:
                 "media": [{"status": "READY",
                             "description": {"text": "LIAM post image"},
                             "media": asset_urn,
-                            "title": {"text": "Post Image"}}]
+                            "title": {"text": "Post Image"}}],
             }},
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
         }
         return self._handle_response(self._make_post_request(payload), "Image Post")
 
