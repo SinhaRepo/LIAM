@@ -19,15 +19,18 @@ _PROVIDERS = [
         "parse": lambda r: r.content,
     },
     {
-        "name": "Imagen4",
+        "name": "Gemini",
         "env": "GOOGLE_API_KEY",
         "fn": lambda prompt, key: requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key={key}",
-            json={"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}},
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={key}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseModalities": ["IMAGE"]}
+            },
             timeout=30
         ),
         "parse": lambda r: base64.b64decode(
-            r.json()["predictions"][0]["bytesBase64Encoded"]
+            r.json()["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
         ),
     },
 ]
