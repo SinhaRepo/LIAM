@@ -30,9 +30,6 @@ def morning_post_check():
     console.print("\n[bold blue]⏰ SCHEDULED JOB: Morning Post Check[/bold blue]")
     try:
         m = Memory()
-        # Look for historically unposted but 'approved' drafts.
-        # Since memory.db currently stores posts but doesn't distinguish fully 'unposted logic' implicitly except was_approved bool,
-        # We assume any recently generated draft that we failed to post due to API error is cached. 
         console.print("[dim]Checking for approved drafts waiting to post...[/dim]")
         
         draft_posted = False
