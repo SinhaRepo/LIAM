@@ -5,14 +5,18 @@ from modules.writer import generate_post, get_banned_phrases
 _HASHTAG_RE = re.compile(r'#[a-zA-Z0-9_]+')
 _SENTENCE_SPLIT_RE = re.compile(r'[.!?]+')
 
+# Built once on first call, reused for lifetime of process
+_BANNED_SET: frozenset[str] = frozenset()
 
-def _banned_set() -> frozenset[str]:
-    """frozenset for O(1) lookup instead of O(n) list scan."""
-    return frozenset(p.lower() for p in get_banned_phrases())
+def _get_banned_set() -> frozenset[str]:
+    global _BANNED_SET
+    if not _BANNED_SET:
+        _BANNED_SET = frozenset(p.lower() for p in get_banned_phrases())
+    return _BANNED_SET
 
 
 def score_buzzwords(post_text: str) -> int:
-    banned = _banned_set()
+    banned = _get_banned_set()
     if not banned:
         return 30
     text_lower = post_text.lower()
@@ -66,7 +70,7 @@ def score_post(post_text: str) -> dict:
 def contains_banned_phrase(post_text: str) -> str | None:
     """O(1) set lookup per phrase vs O(n) per call previously."""
     text_lower = post_text.lower()
-    for phrase in _banned_set():
+    for phrase in _get_banned_set():
         if phrase in text_lower:
             return phrase
     return None
