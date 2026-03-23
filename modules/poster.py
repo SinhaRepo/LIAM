@@ -53,8 +53,8 @@ class Poster:
                 post_date = datetime.fromisoformat(posted_at_str)
                 if post_date.strftime("%Y-%m-%d") == today_str:
                     posts_today += 1
-                if now - post_date < timedelta(hours=4):
-                    raise SafetyError(f"Last post was less than 4 hours ago ({now - post_date}).")
+                if now - post_date < timedelta(hours=3):
+                    raise SafetyError(f"Last post was less than 3 hours ago ({now - post_date}).")
             except SafetyError:
                 raise
             except (ValueError, TypeError):
