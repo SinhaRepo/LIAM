@@ -63,6 +63,7 @@ def daily_summary():
     console.print("\n[bold blue]⏰ SCHEDULED JOB: Daily Summary (9PM)[/bold blue]")
     try:
         m = Memory()
+        history = m.get_post_history(10)
         today_str = datetime.now().strftime("%Y-%m-%d")
         count = sum(1 for p in history if p['date'].startswith(today_str))
         
