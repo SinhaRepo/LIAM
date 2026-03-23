@@ -29,16 +29,8 @@ HOOKS = [
 ]
 
 
-def _save_and_mark(topic: str, content: str, image_path, score: int):
-    m = Memory()
-    m.save_post(topic=topic, content=content, image_path=image_path,
-                score=score, was_approved=True)
-    post_id = m.get_last_post_id()
-    if post_id:
-        m.mark_as_posted(post_id)
-
-
-def _publish(post_text: str, image_path, topic: str, score: int):
+def _publish(post_text: str, image_path, topic: str, score: int, mem: Memory):
+    """Post to LinkedIn and mark in DB. mem passed in — no extra instantiation."""
     poster = Poster()
     try:
         res = (poster.post_with_image(text=post_text, image_path=image_path, human_approved=True)
@@ -46,18 +38,24 @@ def _publish(post_text: str, image_path, topic: str, score: int):
                poster.post_text_only(text=post_text, human_approved=True))
         if not res.get("success"):
             raise Exception(res.get("error"))
-        _save_and_mark(topic, post_text, image_path, score)
+        # save_post returns lastrowid — no extra get_last_post_id() query needed
+        post_id = mem.save_post(topic=topic, content=post_text,
+                                image_path=image_path, score=score, was_approved=True)
+        mem.mark_as_posted(post_id)
         console.print("[green]✅ Posted to LinkedIn successfully![/green]")
     except Exception as e:
         msg = f"Failed to post to LinkedIn API: {e}. Saving draft."
         console.print(f"[red]{msg}[/red]")
         _safe_notify_error(msg)
-        Memory().save_post(topic=topic, content=post_text, image_path=image_path,
-                           score=score, was_approved=True)
+        mem.save_post(topic=topic, content=post_text,
+                      image_path=image_path, score=score, was_approved=True)
 
 
 def agent_loop(user_prompt: str = None):
     console.print("\n[bold magenta]🧠 LIAM ReAct Loop Started[/bold magenta]")
+
+    # Single Memory instance for entire loop run
+    mem = Memory()
 
     # 1. Research or use provided topic
     topic_str = user_prompt
@@ -101,7 +99,7 @@ def agent_loop(user_prompt: str = None):
 
     # 4. Approval gate
     threshold = int(os.environ.get("VOICE_SCORE_THRESHOLD", 70))
-    if scores['total_score'] < threshold:
+    if scores["total_score"] < threshold:
         msg = (f"⚠️ *Post Skipped — Score Too Low*\n\nTopic: {topic_str}\n"
                f"Score: {scores['total_score']}/100 (threshold: {threshold})\n\n"
                "Consider updating `voice_profile/sample_posts.txt`.")
@@ -110,14 +108,15 @@ def agent_loop(user_prompt: str = None):
     else:
         console.print("[cyan]THINK:[/cyan] Score good. Requesting Telegram approval.")
         decision = request_approval(post_text=post, image_path=image_path,
-                                    score=scores['total_score'], details=f"Topic: {topic_str}")
+                                    score=scores["total_score"],
+                                    details=f"Topic: {topic_str}")
         console.print(f"[green]OBSERVE:[/green] Decision: {decision}")
 
         if decision == "approve":
-            _publish(post, image_path, topic_str, scores['total_score'])
+            _publish(post, image_path, topic_str, scores["total_score"], mem)
 
         elif decision == "regenerate":
-            retry_count = getattr(agent_loop, '_retry_count', 0)
+            retry_count = getattr(agent_loop, "_retry_count", 0)
             if retry_count >= 2:
                 console.print("[red]Max 3 regenerations reached.[/red]")
                 _safe_notify("🔄 Max regenerations reached (3/3). Skipped.")
@@ -131,7 +130,7 @@ def agent_loop(user_prompt: str = None):
             from telegram_bot.approval import request_text_reply
             edited_text = request_text_reply(timeout=600)
             if edited_text:
-                _publish(edited_text, image_path, topic_str, scores['total_score'])
+                _publish(edited_text, image_path, topic_str, scores["total_score"], mem)
             else:
                 console.print("[yellow]Edit timed out.[/yellow]")
                 _safe_notify("✏️ Edit timeout (10 min). Post skipped.")
@@ -143,17 +142,17 @@ def agent_loop(user_prompt: str = None):
             return
 
         elif decision in ("skip", "timeout"):
-            msg = "timeout after 1 hour" if decision == "timeout" else "skipped by you"
-            _safe_notify(f"❌ Post {msg}. See you next run! 👋")
+            label = "timeout after 1 hour" if decision == "timeout" else "skipped by you"
+            _safe_notify(f"❌ Post {label}. See you next run! 👋")
 
         elif decision == "error":
             _safe_notify_error("Approval flow error. Check logs.")
 
         agent_loop._retry_count = 0
 
-    # Voice drift check
+    # Voice drift check — reuse existing mem instance
     try:
-        if Memory().check_voice_drift():
+        if mem.check_voice_drift():
             console.print("[bold red]🚨 VOICE DRIFT DETECTED[/bold red]")
             _safe_notify("⚠️ *Voice Drift Alert:* Last 10 posts averaging below 65/100. "
                          "Update `sample_posts.txt`.")
@@ -164,10 +163,9 @@ def agent_loop(user_prompt: str = None):
 
 
 def _generate_image_prompt(topic: str, post_text: str) -> str:
+    from modules.writer import _get_groq_client  # reuse cached client
     try:
-        from groq import Groq
-        client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-        resp = client.chat.completions.create(
+        resp = _get_groq_client().chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": (
@@ -178,7 +176,7 @@ def _generate_image_prompt(topic: str, post_text: str) -> str:
                 {"role": "user", "content": (
                     f"Topic: {topic}\nPost: {post_text[:300]}\n"
                     "Write a single image prompt for this post."
-                )}
+                )},
             ],
             max_tokens=100, temperature=0.7,
         )
