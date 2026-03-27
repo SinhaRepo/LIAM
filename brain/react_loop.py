@@ -11,21 +11,21 @@ from rich.console import Console
 console = Console()
 
 ANGLES = [
-    "Technical learning",
-    "Lessons from failure",
-    "Contrarian opinion",
-    "Real project experience",
-    "What I wish I knew earlier",
-    "Behind the scenes of a real project",
+    "What the news actually signals for the industry",
+    "What enterprises or developers should do about this",
+    "The overlooked implication most people miss",
+    "The risk or downside nobody is talking about",
+    "What makes this different from hype",
+    "Why this matters right now specifically",
 ]
 
 HOOKS = [
-    "Personal insight",
-    "Surprising discovery",
-    "Common mistake I made",
-    "Honest take after shipping it",
-    "Something I got wrong for years",
-    "A question that changed how I think",
+    "Lead with the most surprising specific fact from the article",
+    "Name the company and product upfront then unpack",
+    "Open with a number or stat directly from the article",
+    "Start with what most people are missing about this story",
+    "Open with the key tension or contradiction in the news",
+    "Lead with the enterprise or developer implication directly",
 ]
 
 
