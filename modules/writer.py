@@ -6,8 +6,6 @@ from brain.prompts import SYSTEM_PROMPT
 
 load_dotenv()
 
-# --- Module-level cache: files read ONCE per process, not per call ---
-
 @lru_cache(maxsize=1)
 def get_banned_phrases() -> tuple[str, ...]:
     """Returns a tuple (hashable/cacheable). Read from disk exactly once."""
@@ -51,16 +49,41 @@ def _get_system_message() -> str:
             f"\n\nSTYLE GUIDE:\n{_get_style_guide()}")
 
 
-def generate_post(topic: str, angle: str, hook: str) -> str:
+def generate_post(topic: str, angle: str, hook: str,
+                  article_context: str = "") -> str:
+    """
+    Generate a LinkedIn post. If article_context is provided,
+    the LLM is grounded with real facts from the article.
+    """
     if not os.environ.get("GROQ_API_KEY"):
         return "Error: GROQ_API_KEY not found in environment."
+
+    # Build the article context block for the prompt
+    if article_context.strip():
+        article_context_block = (
+            "ARTICLE CONTEXT — use these real facts in your post:\n"
+            "─────────────────────────────────────────────────────\n"
+            f"{article_context}\n"
+            "─────────────────────────────────────────────────────\n"
+            "Write using the specific facts, numbers and names above. "
+            "Do NOT invent any details not present here."
+        )
+    else:
+        article_context_block = (
+            "No article context available. Write a grounded opinion "
+            "based on your knowledge of the topic."
+        )
+
     try:
         completion = _get_groq_client().chat.completions.create(
             messages=[
                 {"role": "system", "content": _get_system_message()},
                 {"role": "user", "content": SYSTEM_PROMPT.format(
                     sample_posts=_get_sample_posts(),
-                    topic=topic, angle=angle, hook=hook
+                    topic=topic,
+                    angle=angle,
+                    hook=hook,
+                    article_context_block=article_context_block,
                 )},
             ],
             model="llama-3.3-70b-versatile",
