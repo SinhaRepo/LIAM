@@ -77,6 +77,7 @@ def contains_banned_phrase(post_text: str) -> str | None:
 
 
 def generate_and_score_post(topic: str, angle: str, hook: str,
+                             article_context: str = "",
                              max_retries: int = 3) -> tuple[str, dict]:
     from rich.console import Console
     from modules.memory import Memory
@@ -88,7 +89,7 @@ def generate_and_score_post(topic: str, angle: str, hook: str,
 
     for attempt in range(max_retries):
         console.print(f"[dim]Generating post (Attempt {attempt + 1})...[/dim]")
-        post = generate_post(topic, angle, hook)
+        post = generate_post(topic, angle, hook, article_context)
 
         if not post or post.startswith("Error"):
             console.print(f"[red]Generation failed: {post}[/red]")
