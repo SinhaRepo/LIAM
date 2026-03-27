@@ -51,6 +51,40 @@ def _publish(post_text: str, image_path, topic: str, score: int, mem: Memory):
                       image_path=image_path, score=score, was_approved=True)
 
 
+def _regenerate_with_context(topic_str: str, article_context: str, mem: Memory):
+    """Regenerate a post for the same topic keeping the same article context."""
+    console.print("[yellow]ACT:[/yellow] Regenerating post with same topic...")
+    try:
+        angle, hook = random.choice(ANGLES), random.choice(HOOKS)
+        console.print(f"[dim]Angle: {angle} | Hook: {hook}[/dim]")
+        post, scores = generate_and_score_post(topic=topic_str, angle=angle,
+                                               hook=hook, article_context=article_context)
+        if not post or post.startswith("Error"):
+            raise ValueError(f"Generation error: {post}")
+    except Exception as e:
+        _safe_notify_error(f"Regeneration failed: {e}")
+        return
+
+    image_path = None
+    try:
+        image_prompt = _generate_image_prompt(topic_str, post)
+        image_path = generate_image(image_prompt)
+    except Exception:
+        pass
+
+    threshold = int(os.environ.get("VOICE_SCORE_THRESHOLD", 70))
+    if scores["total_score"] >= threshold:
+        decision = request_approval(post_text=post, image_path=image_path,
+                                    score=scores["total_score"],
+                                    details=f"Topic: {topic_str}")
+        if decision == "approve":
+            _publish(post, image_path, topic_str, scores["total_score"], mem)
+        elif decision in ("skip", "timeout"):
+            _safe_notify(f"❌ Post {decision}. See you next run! 👋")
+    else:
+        _safe_notify(f"⚠️ Regenerated post score too low ({scores['total_score']}/100). Skipped.")
+
+
 def agent_loop(user_prompt: str = None):
     console.print("\n[bold magenta]🧠 LIAM ReAct Loop Started[/bold magenta]")
 
@@ -59,11 +93,18 @@ def agent_loop(user_prompt: str = None):
 
     # 1. Research or use provided topic
     topic_str = user_prompt
+    article_context = ""
     if not topic_str:
         console.print("[cyan]THINK:[/cyan] Researching trending topics...")
         try:
-            topic_str = get_trending_topics().get("recommended_topic")
+            research = get_trending_topics()
+            topic_str = research.get("recommended_topic")
+            article_context = research.get("article_context", "")
             console.print(f"[green]OBSERVE:[/green] Chose topic: {topic_str}")
+            if article_context:
+                console.print(f"[dim]Article context fetched ({len(article_context)} chars)[/dim]")
+            else:
+                console.print("[yellow]No article context — post will be opinion-only.[/yellow]")
         except Exception as e:
             msg = f"Research phase failed: {e}"
             console.print(f"[red]{msg}[/red]")
@@ -77,7 +118,8 @@ def agent_loop(user_prompt: str = None):
     try:
         angle, hook = random.choice(ANGLES), random.choice(HOOKS)
         console.print(f"[dim]Angle: {angle} | Hook: {hook}[/dim]")
-        post, scores = generate_and_score_post(topic=topic_str, angle=angle, hook=hook)
+        post, scores = generate_and_score_post(topic=topic_str, angle=angle,
+                                               hook=hook, article_context=article_context)
         if not post or post.startswith("Error"):
             raise ValueError(f"Generation error: {post}")
     except Exception as e:
@@ -123,7 +165,8 @@ def agent_loop(user_prompt: str = None):
                 agent_loop._retry_count = 0
                 return
             agent_loop._retry_count = retry_count + 1
-            agent_loop(topic_str)
+            # Re-generate with same topic AND same article context
+            _regenerate_with_context(topic_str, article_context, mem)
             return
 
         elif decision == "edit":
