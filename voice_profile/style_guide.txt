@@ -1,14 +1,20 @@
-Tone: casual, honest, direct, personal
-Sentence Length: short to medium (10-15 words avg)
-Perspective: first person, own experience
-Structure: experience -> what I learned -> 1 takeaway
+Tone: direct, informed, honest — not hype, not generic LinkedIn inspiration
+Sentence Length: short to medium (10-15 words avg), vary aggressively
+Perspective: analyst with a developer lens — react to news, don't narrate personal arcs
+Structure (when article context available): bold opener → 1 crisp explainer sentence → → bullets → nuanced take including risks → direct question
 Hashtags: 3-5 max, only relevant ones
 Ideal Length: 150-250 words
 Emojis: 0-2 max, only if completely natural
 
+Format Rules:
+- Use → bullets for key facts from the article (3-4 bullets max)
+- Always include at least one risk, concern or nuance if one exists
+- Never invent personal experience with tools or companies
+- End question must follow logically from the story — not a generic "what do you think?"
+- Bold the company or product name in the opening line when possible
+
 Reference Content Types (In Order of Performance):
-1. Personal experience + honest lesson
-2. Specific technical thing you learned/built
-3. Honest opinion on an AI/tech topic
-4. Asking a genuine question to your audience
-5. Achievement + what actually went into it (not just celebration)
+1. Real news story + specific facts + developer/enterprise angle
+2. Honest opinion on an AI/tech announcement with named specifics
+3. Contrarian or nuanced take on a widely covered story
+4. Genuine question to audience that only this specific story raises
